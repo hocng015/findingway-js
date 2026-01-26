@@ -1,0 +1,68 @@
+﻿channels:
+- id: "1410772923026768003"
+  name: "Fruitful FRU PF check"
+  duty: "Futures Rewritten (Ultimate)"
+  dataCentres: [Aether]
+- id: "1411760050233409789"
+  name: "Fruitful TOP PF check"
+  duty: "The Omega Protocol (Ultimate)"
+  dataCentres: [Aether]
+- id: "1411760235558998027"
+  name: "Fruitful DSR PF check"
+  duty: "Dragonsong's Reprise (Ultimate)"
+  dataCentres: [Aether]
+- id: "1411760369528995890"
+  name: "Fruitful TEA PF check"
+  duty: "The Epic of Alexander (Ultimate)"
+  dataCentres: [Aether]
+- id: "1411760648655736914"
+  name: "Fruitful UWU PF check"
+  duty: "The Weapon's Refrain (Ultimate)"
+  dataCentres: [Aether]
+- id: "1411760809809285313"
+  name: "Fruitful UCOB PF check"
+  duty: "The Unending Coil of Bahamut (Ultimate)"
+  dataCentres: [Aether]
+- id: "1448442208591020032"
+  name: "Fruitful M12S PF check"
+  duty: "AAC Heavyweight M4 (Savage)"
+  dataCentres: [Aether]
+- id: "1448442451000823963"
+  name: "Fruitful M11S PF check"
+  duty: "AAC Heavyweight M3 (Savage)"
+  dataCentres: [Aether]
+- id: "1448442629715923110"
+  name: "Fruitful M10S PF check"
+  duty: "AAC Heavyweight M2 (Savage)"
+  dataCentres: [Aether]
+- id: "1448442671126544414"
+  name: "Fruitful M9S PF check"
+  duty: "AAC Heavyweight M1 (Savage)"
+  dataCentres: [Aether]
+marketboardChannels:
+- id: "1421300175418163370"
+  name: "Marketboard Prices"
+recruitmentChannels:
+# Menu channel - where users click Create/Delete buttons
+- id:
+  name: "PF Recruitment Menu"
+  type: "menu"
+# Ultimate recruitment posts channel
+- id:
+  name: "Ultimate Recruitment"
+  type: "ultimate"
+# Savage recruitment posts channel
+- id:
+  name: "Savage Recruitment"
+  type: "savage"
+
+# Lodestone integration settings
+lodestone:
+  enabled: true          # Master toggle for Lodestone integration
+  language: "en"         # Language: en, jp, fr, de
+  cacheTTL: "6h"        # How long to cache character portraits
+  maxCacheSize: 1000    # Maximum number of cached characters
+  searchCooldown: "10m" # Cooldown after timeouts or rate limits per character
+  globalCooldown: "5m"  # Cooldown after Lodestone rate limits (global)
+
+
