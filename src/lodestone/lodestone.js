@@ -1,5 +1,6 @@
-﻿const cheerio = require('cheerio');
-const { Cache, NEGATIVE_TTL_MS } = require('./cache');
+﻿const { Cache, NEGATIVE_TTL_MS } = require('./cache');
+
+const XIVAPI_BASE_URL = 'https://xivapi.com';
 
 const STORE_TIMEOUT_MS = 2000;
 
@@ -22,28 +23,28 @@ function normalizeWorld(world) {
   return result;
 }
 
-function lodestoneBaseForLanguage(language) {
+function normalizeLanguage(language) {
   const lang = String(language || '').toLowerCase();
   switch (lang) {
     case 'jp':
     case 'ja':
-      return 'https://jp.finalfantasyxiv.com/lodestone';
+      return 'ja';
     case 'fr':
-      return 'https://fr.finalfantasyxiv.com/lodestone';
+      return 'fr';
     case 'de':
-      return 'https://de.finalfantasyxiv.com/lodestone';
+      return 'de';
     default:
-      return 'https://na.finalfantasyxiv.com/lodestone';
+      return 'en';
   }
 }
 
 class LodestoneClient {
   constructor(enabled, language, cacheTTL, maxCacheSize, perKeyCooldownMs, globalCooldownMs) {
     this.enabled = !!enabled;
-    this.lodestoneBase = lodestoneBaseForLanguage(language);
+    this.language = normalizeLanguage(language);
     this.cache = new Cache(cacheTTL, maxCacheSize);
     this.store = null;
-    this.rateLimitMs = 5000;
+    this.rateLimitMs = 3000; // XIVAPI rate limit - be conservative
     this.requestQueue = [];
     this.workerRunning = false;
     this.inFlight = new Set();
@@ -424,12 +425,12 @@ class LodestoneClient {
   }
 
   async searchCharacter(name, world, cacheKey) {
-    const searchUrl = `${this.lodestoneBase}/character/?q=${encodeURIComponent(name)}&worldname=${encodeURIComponent(world)}`;
-    console.log(`[Lodestone Client] Waiting for search results for ${cacheKey}...`);
+    const searchUrl = `${XIVAPI_BASE_URL}/character/search?name=${encodeURIComponent(name)}&server=${encodeURIComponent(world)}`;
+    console.log(`[Lodestone Client] Searching XIVAPI for ${cacheKey}...`);
 
-    let html;
+    let response;
     try {
-      html = await this.fetchWithTimeout(searchUrl, 60000);
+      response = await this.fetchJSON(searchUrl, 60000);
     } catch (err) {
       console.log(`[Lodestone Client] Search error for ${cacheKey}: ${err.message}`);
       if (String(err.message || '').includes('429')) {
@@ -442,111 +443,63 @@ class LodestoneClient {
       throw err;
     }
 
-    const $ = cheerio.load(html);
-    const results = this.collectCharacterIds($, name, world);
-
-    const pagerText = $('.btn__pager__current').text().trim();
-    let maxPages = 1;
-    if (pagerText) {
-      const match = pagerText.match(/Page\s+(\d+)\s+of\s+(\d+)/i);
-      if (match) {
-        maxPages = parseInt(match[2], 10);
-      }
-    }
-
-    if (maxPages > 1) {
-      for (let page = 2; page <= maxPages; page += 1) {
-        const pageHtml = await this.fetchWithTimeout(`${searchUrl}&page=${page}`, 60000);
-        const page$ = cheerio.load(pageHtml);
-        results.push(...this.collectCharacterIds(page$, name, world));
-      }
-    }
-
-    if (results.length === 0) {
+    if (!response.Results || response.Results.length === 0) {
       console.log(`[Lodestone Client] No results found for ${cacheKey}`);
       return null;
     }
 
-    const first = results[0];
-    console.log(`[Lodestone Client] Found character ID ${first.id} for ${cacheKey}`);
-    return first;
+    // Find exact match (case-insensitive)
+    const exactMatch = response.Results.find(
+      (char) => char.Name.toLowerCase() === name.toLowerCase()
+    );
+
+    if (!exactMatch) {
+      console.log(`[Lodestone Client] No exact match found for ${cacheKey}`);
+      return null;
+    }
+
+    console.log(`[Lodestone Client] Found character ID ${exactMatch.ID} for ${cacheKey}`);
+    return {
+      id: exactMatch.ID,
+      name: exactMatch.Name,
+      world: exactMatch.Server,
+      avatar: exactMatch.Avatar || '',
+    };
   }
 
-  collectCharacterIds($, name, world) {
-    const ids = [];
-    const normalizedWorld = normalizeWorld(world).toLowerCase();
-    $('.ldst__window .entry').each((_, element) => {
-      const entry = $(element);
-      const entryName = entry.find('.entry__name').text().trim();
-      const entryWorld = normalizeWorld(entry.find('.entry__world').text().trim());
-      if (entryName.toLowerCase() === name.toLowerCase()) {
-        if (normalizedWorld && entryWorld.toLowerCase() !== normalizedWorld) {
-          return;
-        }
-        const link = entry.find('.entry__link').attr('href');
-        if (link) {
-          const match = link.match(/\/lodestone\/character\/(\d+)\//);
-          if (match) {
-            ids.push({ id: parseInt(match[1], 10), name: entryName, world: entryWorld || world });
-          }
-        }
-      }
-    });
-    return ids;
-  }
 
   async fetchCharacterById(id) {
-    const url = `${this.lodestoneBase}/character/${id}/`;
-    let html;
+    const url = `${XIVAPI_BASE_URL}/character/${id}`;
+    let data;
     try {
-      html = await this.fetchWithTimeout(url, 60000);
+      data = await this.fetchJSON(url, 60000);
     } catch (err) {
       console.log(`[Lodestone Client] Failed to fetch character ${id}: ${err.message}`);
       return null;
     }
 
-    const $ = cheerio.load(html);
+    if (!data.Character) {
+      console.log(`[Lodestone Client] No character data returned for ID ${id}`);
+      return null;
+    }
 
-    const name = $('.frame__chara__name').first().text().trim();
-    const worldText = $('.frame__chara__world').first().text().trim();
-    const world = normalizeWorld(worldText);
-
-    const avatar = this.extractImage($, [
-      '.character__face img',
-      '.character__content .character__face img',
-      '.character__view__face img',
-      '.frame__chara__face img',
-    ]);
-
-    const portrait = this.extractImage($, [
-      '.character__portrait img',
-      '.character__content .character__portrait img',
-      '.character__view__portrait img',
-      '.frame__chara__portrait img',
-    ]);
+    const char = data.Character;
+    const name = char.Name || '';
+    const world = char.Server || '';
+    const avatar = char.Avatar || '';
+    const portrait = char.Portrait || '';
 
     return {
       id,
-      name: name || '',
-      world: world || '',
-      portrait: portrait || '',
-      avatar: avatar || '',
+      name,
+      world,
+      portrait,
+      avatar,
       fetchedAt: new Date(),
     };
   }
 
-  extractImage($, selectors) {
-    for (const selector of selectors) {
-      const src = $(selector).attr('src');
-      if (src) {
-        return src;
-      }
-    }
-    const fallback = $('img').first().attr('src');
-    return fallback || '';
-  }
-
-  async fetchWithTimeout(url, timeoutMs) {
+  async fetchJSON(url, timeoutMs) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -554,7 +507,7 @@ class LodestoneClient {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status} for ${url}`);
       }
-      return await res.text();
+      return await res.json();
     } finally {
       clearTimeout(timeout);
     }
