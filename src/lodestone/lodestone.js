@@ -1,4 +1,4 @@
-﻿const { Cache, NEGATIVE_TTL_MS } = require('./cache');
+const { Cache, NEGATIVE_TTL_MS } = require('./cache');
 
 const XIVAPI_BASE_URL = 'https://xivapi.com';
 
@@ -562,5 +562,3 @@ module.exports = {
   LodestoneClient,
   normalizeWorld,
 };
-
-

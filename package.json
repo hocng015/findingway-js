@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "findingway-js",
   "version": "0.1.0",
   "description": "Findingway Discord bot rewrite in JavaScript",
@@ -20,5 +20,3 @@
     "node": "20.x"
   }
 }
-
-
