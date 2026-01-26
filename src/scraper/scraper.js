@@ -1,4 +1,4 @@
-﻿const cheerio = require('cheerio');
+const cheerio = require('cheerio');
 const { Listings, Listing, Slot, Role, Roles, Job } = require('../ffxiv/listings');
 
 class Scraper {
@@ -86,5 +86,3 @@ class Scraper {
 module.exports = {
   Scraper,
 };
-
-
