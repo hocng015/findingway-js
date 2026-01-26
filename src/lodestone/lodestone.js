@@ -1,6 +1,5 @@
+const { Character, CharacterSearch } = require('@xivapi/nodestone');
 const { Cache, NEGATIVE_TTL_MS } = require('./cache');
-
-const XIVAPI_BASE_URL = 'https://xivapi.com';
 
 const STORE_TIMEOUT_MS = 2000;
 
@@ -44,7 +43,9 @@ class LodestoneClient {
     this.language = normalizeLanguage(language);
     this.cache = new Cache(cacheTTL, maxCacheSize);
     this.store = null;
-    this.rateLimitMs = 3000; // XIVAPI rate limit - be conservative
+    this.characterParser = new Character();
+    this.characterSearchParser = new CharacterSearch();
+    this.rateLimitMs = 3000; // Lodestone scraping can be sensitive, be conservative
     this.requestQueue = [];
     this.workerRunning = false;
     this.inFlight = new Set();
@@ -425,15 +426,24 @@ class LodestoneClient {
   }
 
   async searchCharacter(name, world, cacheKey) {
-    const searchUrl = `${XIVAPI_BASE_URL}/character/search?name=${encodeURIComponent(name)}&server=${encodeURIComponent(world)}`;
-    console.log(`[Lodestone Client] Searching XIVAPI for ${cacheKey}...`);
+    console.log(`[Lodestone Client] Searching Lodestone for ${cacheKey}...`);
 
     let response;
     try {
-      response = await this.fetchJSON(searchUrl, 60000);
+      response = await this.withTimeout(
+        this.characterSearchParser.parse({
+          query: {
+            name: String(name || '').trim(),
+            server: String(world || '').trim(),
+          },
+        }),
+        60000,
+        'search request timeout',
+      );
     } catch (err) {
       console.log(`[Lodestone Client] Search error for ${cacheKey}: ${err.message}`);
-      if (String(err.message || '').includes('429')) {
+      const status = Number.parseInt(String(err.message || ''), 10);
+      if (status === 429) {
         this.setGlobalCooldown(this.globalCooldownMs);
         this.setKeyCooldown(cacheKey, this.perKeyCooldownMs);
       } else {
@@ -443,51 +453,67 @@ class LodestoneClient {
       throw err;
     }
 
-    if (!response.Results || response.Results.length === 0) {
+    const results = Array.isArray(response?.List) ? response.List : [];
+    if (results.length === 0) {
       console.log(`[Lodestone Client] No results found for ${cacheKey}`);
       return null;
     }
 
-    // Find exact match (case-insensitive)
-    const exactMatch = response.Results.find(
-      (char) => char.Name.toLowerCase() === name.toLowerCase()
-    );
+    const normalizedName = String(name || '').trim().toLowerCase();
+    const normalizedWorld = normalizeWorld(world).toLowerCase();
+
+    let exactMatch = results.find((char) => {
+      const charName = String(char?.Name || '').trim().toLowerCase();
+      const charWorld = normalizeWorld(char?.World || '').toLowerCase();
+      return charName === normalizedName && (!normalizedWorld || charWorld === normalizedWorld);
+    });
+
+    if (!exactMatch) {
+      exactMatch = results.find((char) => String(char?.Name || '').trim().toLowerCase() === normalizedName);
+    }
 
     if (!exactMatch) {
       console.log(`[Lodestone Client] No exact match found for ${cacheKey}`);
       return null;
     }
 
-    console.log(`[Lodestone Client] Found character ID ${exactMatch.ID} for ${cacheKey}`);
+    const id = Number(exactMatch.ID || exactMatch.Id || exactMatch.id || 0);
+    if (!id) {
+      console.log(`[Lodestone Client] Found character without ID for ${cacheKey}`);
+      return null;
+    }
+
+    console.log(`[Lodestone Client] Found character ID ${id} for ${cacheKey}`);
     return {
-      id: exactMatch.ID,
-      name: exactMatch.Name,
-      world: exactMatch.Server,
+      id,
+      name: String(exactMatch.Name || '').trim(),
+      world: normalizeWorld(exactMatch.World || world),
       avatar: exactMatch.Avatar || '',
     };
   }
 
-
   async fetchCharacterById(id) {
-    const url = `${XIVAPI_BASE_URL}/character/${id}`;
     let data;
     try {
-      data = await this.fetchJSON(url, 60000);
+      data = await this.withTimeout(
+        this.characterParser.parse({ params: { characterId: String(id) } }),
+        60000,
+        'character request timeout',
+      );
     } catch (err) {
       console.log(`[Lodestone Client] Failed to fetch character ${id}: ${err.message}`);
       return null;
     }
 
-    if (!data.Character) {
+    if (!data) {
       console.log(`[Lodestone Client] No character data returned for ID ${id}`);
       return null;
     }
 
-    const char = data.Character;
-    const name = char.Name || '';
-    const world = char.Server || '';
-    const avatar = char.Avatar || '';
-    const portrait = char.Portrait || '';
+    const name = String(data.Name || '').trim();
+    const world = normalizeWorld(data.World || data.Server || '');
+    const avatar = data.Avatar || '';
+    const portrait = data.Portrait || '';
 
     return {
       id,
@@ -499,17 +525,15 @@ class LodestoneClient {
     };
   }
 
-  async fetchJSON(url, timeoutMs) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  async withTimeout(promise, timeoutMs, message) {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+    });
     try {
-      const res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} for ${url}`);
-      }
-      return await res.json();
+      return await Promise.race([promise, timeoutPromise]);
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(timeoutId);
     }
   }
 

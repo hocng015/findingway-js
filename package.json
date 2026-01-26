@@ -10,6 +10,7 @@
     "lint": "echo \"(no lint configured)\""
   },
   "dependencies": {
+    "@xivapi/nodestone": "^0.2.7",
     "cheerio": "^1.0.0-rc.12",
     "discord.js": "^14.16.2",
     "dotenv": "^16.4.5",
