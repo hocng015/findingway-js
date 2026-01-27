@@ -579,7 +579,7 @@ class TomestoneClient {
     }
 
     if (encounterMatch) {
-      return 'Not Cleared';
+      return 'No Information';
     }
 
     return null;
@@ -587,7 +587,7 @@ class TomestoneClient {
 
   formatProgress(target) {
     if (!target) {
-      return 'Not Cleared';
+      return 'No Information';
     }
     const percent = String(target.percent || '').trim();
     const name = String(target.name || '').trim();
@@ -600,7 +600,7 @@ class TomestoneClient {
     if (name) {
       return `Progress: ${name}`;
     }
-    return 'Not Cleared';
+    return 'No Information';
   }
 
   parsePercent(value) {
