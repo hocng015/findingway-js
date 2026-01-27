@@ -238,6 +238,14 @@ class Discord {
       return { thumbURL: FallbackThumbnailURL, name: '', world: '', cached: true };
     }
 
+    if (this.tomestoneClient && this.tomestoneClient.isEnabled()) {
+      const activityPayload = await this.tomestoneClient.getActivityByName(name, world);
+      const tomestoneAvatar = this.tomestoneClient.getAvatarFromActivity(activityPayload);
+      if (tomestoneAvatar) {
+        return { thumbURL: tomestoneAvatar, name, world, cached: true };
+      }
+    }
+
     const cached = await this.lodestoneClient.getCharacterPortraitCached(name, world);
     if (cached.found) {
       if (cached.url) {
@@ -270,12 +278,14 @@ class Discord {
       return '';
     }
 
-    const id = await this.lodestoneClient.getCharacterId(name, world);
-    if (!id) {
-      return '';
+    let activityPayload = await this.tomestoneClient.getActivityByName(name, world);
+    if (!activityPayload) {
+      const id = await this.lodestoneClient.getCharacterId(name, world);
+      if (!id) {
+        return '';
+      }
+      activityPayload = await this.tomestoneClient.getActivityById(id);
     }
-
-    const activityPayload = await this.tomestoneClient.getActivityById(id);
     if (!activityPayload) {
       return '';
     }

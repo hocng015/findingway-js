@@ -58,6 +58,8 @@ class PostgresStore {
         on tomestone_character_cache (profile_expires_at);
       create index if not exists tomestone_character_cache_activity_expires_idx
         on tomestone_character_cache (activity_expires_at);
+      create index if not exists tomestone_character_cache_name_world_idx
+        on tomestone_character_cache (lower(name), lower(world));
     `;
     await this.pool.query(query);
   }
@@ -293,6 +295,46 @@ class PostgresStore {
     };
   }
 
+  async getTomestoneActivityByName(name, world) {
+    if (!this.pool) {
+      return { data: null, found: false };
+    }
+
+    const nameValue = String(name || '').trim().toLowerCase();
+    const worldValue = String(world || '').trim().toLowerCase();
+    if (!nameValue || !worldValue) {
+      return { data: null, found: false };
+    }
+
+    const { rows } = await this.pool.query(
+      `
+        select activity_json, activity_expires_at, name, world, activity_fetched_at
+        from tomestone_character_cache
+        where lower(name) = $1
+          and lower(world) = $2
+        limit 1
+      `,
+      [nameValue, worldValue],
+    );
+
+    if (rows.length === 0 || !rows[0].activity_json) {
+      return { data: null, found: false };
+    }
+
+    const expiresAt = rows[0].activity_expires_at ? new Date(rows[0].activity_expires_at) : null;
+    if (expiresAt && Date.now() > expiresAt.getTime()) {
+      return { data: null, found: false };
+    }
+
+    return {
+      data: rows[0].activity_json,
+      found: true,
+      name: rows[0].name,
+      world: rows[0].world,
+      fetchedAt: rows[0].activity_fetched_at ? new Date(rows[0].activity_fetched_at) : null,
+    };
+  }
+
   async getTomestoneActivityRaw(characterId) {
     if (!this.pool) {
       return { data: null, found: false };
@@ -305,6 +347,42 @@ class PostgresStore {
         where character_id = $1
       `,
       [characterId],
+    );
+
+    if (rows.length === 0 || !rows[0].activity_json) {
+      return { data: null, found: false };
+    }
+
+    return {
+      data: rows[0].activity_json,
+      found: true,
+      name: rows[0].name,
+      world: rows[0].world,
+      fetchedAt: rows[0].activity_fetched_at ? new Date(rows[0].activity_fetched_at) : null,
+      expiresAt: rows[0].activity_expires_at ? new Date(rows[0].activity_expires_at) : null,
+    };
+  }
+
+  async getTomestoneActivityRawByName(name, world) {
+    if (!this.pool) {
+      return { data: null, found: false };
+    }
+
+    const nameValue = String(name || '').trim().toLowerCase();
+    const worldValue = String(world || '').trim().toLowerCase();
+    if (!nameValue || !worldValue) {
+      return { data: null, found: false };
+    }
+
+    const { rows } = await this.pool.query(
+      `
+        select activity_json, activity_expires_at, name, world, activity_fetched_at
+        from tomestone_character_cache
+        where lower(name) = $1
+          and lower(world) = $2
+        limit 1
+      `,
+      [nameValue, worldValue],
     );
 
     if (rows.length === 0 || !rows[0].activity_json) {
