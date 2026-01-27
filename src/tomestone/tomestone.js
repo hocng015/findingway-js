@@ -78,6 +78,7 @@ class TomestoneClient {
     this.requestQueue = [];
     this.activeRequests = 0;
     this.lastRequestAt = 0;
+    this.debug = !!config.debug;
   }
 
   static decodeBase64(value) {
@@ -108,6 +109,13 @@ class TomestoneClient {
     return String(avatar || '').trim();
   }
 
+  getAvatarFromActivity(payload) {
+    if (!payload) {
+      return '';
+    }
+    return this.getPreferredAvatar(payload);
+  }
+
   cleanupOldRequests() {
     const now = Date.now();
     const cutoff = now - this.rateLimitWindowMs;
@@ -123,9 +131,17 @@ class TomestoneClient {
     this.requestTimestamps.push(Date.now());
   }
 
+  logDebug(message) {
+    if (!this.debug) {
+      return;
+    }
+    console.log(`[Tomestone Client] ${message}`);
+  }
+
   scheduleRequest(fn) {
     return new Promise((resolve, reject) => {
       this.requestQueue.push({ fn, resolve, reject });
+      this.logDebug(`Queued request (pending: ${this.requestQueue.length}, active: ${this.activeRequests})`);
       this.processQueue();
     });
   }
@@ -146,6 +162,7 @@ class TomestoneClient {
     const run = async () => {
       this.activeRequests += 1;
       this.lastRequestAt = Date.now();
+      this.logDebug(`Dispatching request (active: ${this.activeRequests})`);
       try {
         const result = await next.fn();
         next.resolve(result);
@@ -153,6 +170,7 @@ class TomestoneClient {
         next.reject(err);
       } finally {
         this.activeRequests -= 1;
+        this.logDebug(`Request complete (active: ${this.activeRequests})`);
         this.processQueue();
       }
     };
@@ -172,10 +190,12 @@ class TomestoneClient {
     if (this.store && typeof this.store.getTomestoneProfile === 'function') {
       const cached = await this.store.getTomestoneProfile(id);
       if (cached?.found) {
+        this.logDebug(`Profile cache hit for ${id}`);
         return cached.data;
       }
     }
 
+    this.logDebug(`Profile cache miss for ${id}`);
     const profile = await this.fetchProfileById(id);
     if (profile && this.store && typeof this.store.setTomestoneProfile === 'function') {
       const expiresAt = new Date(Date.now() + this.profileCacheTTLms);
@@ -187,6 +207,7 @@ class TomestoneClient {
         new Date(),
         expiresAt,
       );
+      this.logDebug(`Profile cached for ${id} (expires: ${expiresAt.toISOString()})`);
     }
 
     return profile;
@@ -270,10 +291,12 @@ class TomestoneClient {
     if (this.store && typeof this.store.getTomestoneActivity === 'function') {
       const cached = await this.store.getTomestoneActivity(id);
       if (cached?.found) {
+        this.logDebug(`Activity cache hit for ${id}`);
         return cached.data;
       }
     }
 
+    this.logDebug(`Activity cache miss for ${id}`);
     const activityPayload = await this.fetchActivityAllById(id);
     if (activityPayload && this.store && typeof this.store.setTomestoneActivity === 'function') {
       const expiresAt = new Date(Date.now() + this.activityCacheTTLms);
@@ -285,9 +308,22 @@ class TomestoneClient {
         new Date(),
         expiresAt,
       );
+      this.logDebug(`Activity cached for ${id} (expires: ${expiresAt.toISOString()})`);
     }
 
     return activityPayload;
+  }
+
+  async getCachedActivityById(id) {
+    if (!this.store || typeof this.store.getTomestoneActivity !== 'function') {
+      return null;
+    }
+    const cached = await this.store.getTomestoneActivity(id);
+    if (cached?.found) {
+      this.logDebug(`Activity cache read for ${id}`);
+      return cached.data;
+    }
+    return null;
   }
 
   async fetchActivityPageById(id, pageOrUrl) {
@@ -351,6 +387,7 @@ class TomestoneClient {
     const aggregated = this.extractActivities(firstPage);
     let nextUrl = this.getNextPageUrl(firstPage);
     let pageCount = 1;
+    this.logDebug(`Activity fetch page 1 for ${id} (items: ${aggregated.length})`);
 
     while (nextUrl && pageCount < this.maxActivityPages) {
       const page = await this.fetchActivityPageById(id, nextUrl);
@@ -359,6 +396,7 @@ class TomestoneClient {
       }
       const pageActivities = this.extractActivities(page);
       aggregated.push(...pageActivities);
+      this.logDebug(`Activity fetch page ${pageCount + 1} for ${id} (items: ${pageActivities.length})`);
       nextUrl = this.getNextPageUrl(page);
       pageCount += 1;
     }
@@ -399,6 +437,7 @@ class TomestoneClient {
     }
 
     this.refreshTimer = setInterval(() => this.refreshActivityCache(), this.refreshIntervalMs);
+    this.logDebug(`Refresh scheduled every ${this.refreshIntervalMs}ms`);
     this.refreshActivityCache();
   }
 
@@ -417,9 +456,11 @@ class TomestoneClient {
     try {
       const expiring = await this.store.listTomestoneActivityExpiring(this.refreshAheadMs, this.refreshBatchSize);
       if (!Array.isArray(expiring) || expiring.length === 0) {
+        this.logDebug('No expiring activity cache entries found');
         return;
       }
 
+      this.logDebug(`Refreshing ${expiring.length} activity cache entries`);
       for (const entry of expiring) {
         if (!entry?.id) {
           continue;

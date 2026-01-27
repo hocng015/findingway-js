@@ -208,6 +208,18 @@ class LodestoneClient {
     }
 
     const cacheKey = this.cacheKey(name, world);
+
+    if (this.tomestoneClient && this.tomestoneClient.isEnabled() && this.store) {
+      const stored = await this.getStoredID(cacheKey);
+      if (stored.found && stored.id > 0) {
+        const activity = await this.tomestoneClient.getCachedActivityById(stored.id);
+        const tomestoneAvatar = this.tomestoneClient.getAvatarFromActivity(activity);
+        if (tomestoneAvatar) {
+          return { url: tomestoneAvatar, found: true };
+        }
+      }
+    }
+
     const cached = this.cache.get(cacheKey);
     if (cached.found) {
       const url = cached.value.avatar || cached.value.portrait || '';
@@ -322,6 +334,18 @@ class LodestoneClient {
     }
 
     const cacheKey = this.cacheKey(name, world);
+
+    if (this.tomestoneClient && this.tomestoneClient.isEnabled() && this.store) {
+      const stored = await this.getStoredID(cacheKey);
+      if (stored.found && stored.id > 0) {
+        const activity = await this.tomestoneClient.getCachedActivityById(stored.id);
+        const tomestoneAvatar = this.tomestoneClient.getAvatarFromActivity(activity);
+        if (tomestoneAvatar) {
+          return tomestoneAvatar;
+        }
+      }
+    }
+
     const cached = this.cache.get(cacheKey);
     if (cached.found) {
       const url = cached.value.avatar || cached.value.portrait || '';
