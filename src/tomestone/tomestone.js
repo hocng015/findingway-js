@@ -398,64 +398,35 @@ class TomestoneClient {
       return null;
     }
 
-    const duty = String(dutyName).trim().toLowerCase();
+    const duty = this.normalizeLabel(dutyName);
     if (!duty) {
       return null;
     }
 
-    const activities = this.extractActivities(activityPayload);
-    if (activities.length === 0) {
-      return null;
+    const encounterMatch = this.findEncounterMatch(activityPayload?.encounters, duty);
+    if (encounterMatch?.encounter?.achievement?.completedAt) {
+      return '✅ Cleared';
     }
 
-    let bestPercent = 0;
-    let clearedAt = '';
-    let matchedAny = false;
-
-    for (const entry of activities) {
-      const activity = entry?.activity || entry;
-      if (!activity) {
-        continue;
+    const targetMatch = this.findProgressionTarget(activityPayload?.encounters, duty, encounterMatch?.category);
+    if (encounterMatch && targetMatch && encounterMatch.category === targetMatch.category) {
+      if (targetMatch.index > encounterMatch.index && encounterMatch.index >= 0) {
+        return '✅ Cleared';
       }
-
-      const names = [
-        activity.contentLocalizedName,
-        activity?.encounter?.instanceContentLocalizedName,
-        activity?.encounter?.localizedName,
-        activity?.encounter?.canonicalName,
-      ]
-        .filter(Boolean)
-        .map((value) => String(value).trim().toLowerCase());
-
-      const matches = names.some((name) => name === duty || name.includes(duty) || duty.includes(name));
-      if (!matches) {
-        continue;
-      }
-      matchedAny = true;
-
-      const kills = Number(activity.killsCount || 0);
-      if (kills > 0) {
-        const clearedDate = this.formatDate(activity.endTime || activity.startTime);
-        if (clearedDate) {
-          clearedAt = clearedDate;
-        }
-      }
-
-      const percentValue = this.parsePercent(activity.bestPercent);
-      if (percentValue > bestPercent) {
-        bestPercent = percentValue;
+      if (targetMatch.index === encounterMatch.index && targetMatch.target?.percent) {
+        return `Progress: ${String(targetMatch.target.percent).trim()}`;
       }
     }
 
-    if (clearedAt) {
-      return `✅ Cleared on ${clearedAt}`;
+    if (targetMatch?.target?.percent) {
+      return `Progress: ${String(targetMatch.target.percent).trim()}`;
     }
 
-    if (matchedAny) {
-      return `Progress: ${bestPercent.toFixed(1)}%`;
+    if (encounterMatch) {
+      return 'Not Cleared';
     }
 
-    return 'Progress: Unknown';
+    return null;
   }
 
   parsePercent(value) {
@@ -476,6 +447,167 @@ class TomestoneClient {
       return raw.slice(0, 10);
     }
     return raw;
+  }
+
+  normalizeLabel(value) {
+    if (!value) {
+      return '';
+    }
+    return String(value)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  slugToLabel(value) {
+    if (!value) {
+      return '';
+    }
+    return this.normalizeLabel(String(value).replace(/[-_]+/g, ' '));
+  }
+
+  matchesDuty(dutyLabel, candidates) {
+    for (const candidate of candidates) {
+      if (!candidate) {
+        continue;
+      }
+      const normalized = this.normalizeLabel(candidate);
+      if (!normalized) {
+        continue;
+      }
+      if (normalized === dutyLabel || normalized.includes(dutyLabel) || dutyLabel.includes(normalized)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  findEncounterMatch(encounters, dutyLabel) {
+    if (!encounters || !dutyLabel) {
+      return null;
+    }
+
+    const groups = [
+      { key: 'ultimate', list: encounters.ultimate },
+      { key: 'savage', list: encounters.savage },
+      { key: 'extremes', list: encounters.extremes },
+      { key: 'criterion', list: encounters.criterion },
+      { key: 'chaotic', list: encounters.chaotic },
+      { key: 'quantum', list: encounters.quantum },
+    ];
+
+    for (const group of groups) {
+      if (!Array.isArray(group.list)) {
+        continue;
+      }
+      for (let index = 0; index < group.list.length; index += 1) {
+        const encounter = group.list[index];
+        if (!encounter) {
+          continue;
+        }
+        const candidates = [
+          encounter.name,
+          encounter.zoneName,
+          encounter.compactName,
+          encounter?.activity?.link,
+        ];
+        if (this.matchesDuty(dutyLabel, candidates)) {
+          return { category: group.key, encounter, index };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  findProgressionTarget(encounters, dutyLabel, preferredCategory) {
+    if (!encounters || !dutyLabel) {
+      return null;
+    }
+
+    const targets = [];
+    const addTarget = (key, target) => {
+      if (target) {
+        targets.push({ key, target });
+      }
+    };
+
+    if (preferredCategory) {
+      addTarget(preferredCategory, encounters[`${preferredCategory}ProgressionTarget`]);
+    }
+
+    addTarget('savage', encounters.savageProgressionTarget);
+    addTarget('ultimate', encounters.ultimateProgressionTarget);
+    addTarget('extremes', encounters.extremesProgressionTarget);
+    addTarget('chaotic', encounters.chaoticProgressionTarget);
+    addTarget('quantum', encounters.quantumProgressionTarget);
+
+    for (const entry of targets) {
+      const target = entry.target;
+      if (!target) {
+        continue;
+      }
+
+      const link = String(target.link || '');
+      const query = link.includes('?') ? link.split('?')[1] : '';
+      const params = new URLSearchParams(query);
+      const encounterSlug = params.get('encounter');
+      const zoneSlug = params.get('zone');
+
+      const candidates = [
+        target.name,
+        this.slugToLabel(encounterSlug),
+        this.slugToLabel(zoneSlug),
+      ];
+
+      if (this.matchesDuty(dutyLabel, candidates)) {
+        const list = this.getEncounterList(encounters, entry.key);
+        const index = this.findEncounterIndex(list, candidates);
+        return { category: entry.key, target, index };
+      }
+    }
+
+    return null;
+  }
+
+  getEncounterList(encounters, categoryKey) {
+    if (!encounters || !categoryKey) {
+      return [];
+    }
+    const list = encounters[categoryKey];
+    return Array.isArray(list) ? list : [];
+  }
+
+  findEncounterIndex(list, candidates) {
+    if (!Array.isArray(list) || list.length === 0) {
+      return -1;
+    }
+    const candidateLabels = (candidates || [])
+      .filter(Boolean)
+      .map((value) => this.normalizeLabel(value))
+      .filter(Boolean);
+    if (candidateLabels.length === 0) {
+      return -1;
+    }
+
+    for (let index = 0; index < list.length; index += 1) {
+      const encounter = list[index];
+      if (!encounter) {
+        continue;
+      }
+      const encounterCandidates = [
+        encounter.name,
+        encounter.zoneName,
+        encounter.compactName,
+        encounter?.activity?.link,
+      ];
+      for (const label of candidateLabels) {
+        if (this.matchesDuty(label, encounterCandidates)) {
+          return index;
+        }
+      }
+    }
+    return -1;
   }
 }
 

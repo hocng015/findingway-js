@@ -129,7 +129,7 @@ class Discord {
     ];
 
     if (progressInfo) {
-      fields.push({ name: 'Lead Progress', value: progressInfo, inline: false });
+      fields.push({ name: 'Lead Progress', value: this.boxed(progressInfo), inline: false });
     }
 
     const description = this.truncateDescription(listing.description);
