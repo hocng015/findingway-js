@@ -70,6 +70,14 @@ class TomestoneClient {
     this.activityCacheTTLms = parseDurationMs(config.activityCacheTTL || config.cacheTTL, 30 * 60 * 1000);
     const maxPages = Number.parseInt(config.maxActivityPages, 10);
     this.maxActivityPages = Number.isFinite(maxPages) && maxPages > 0 ? maxPages : 10;
+
+    this.requestSpacingMs = parseDurationMs(config.requestSpacingMs, 500);
+    this.requestJitterMs = parseDurationMs(config.requestJitterMs, 250);
+    const maxConcurrent = Number.parseInt(config.maxConcurrentRequests, 10);
+    this.maxConcurrentRequests = Number.isFinite(maxConcurrent) && maxConcurrent > 0 ? maxConcurrent : 1;
+    this.requestQueue = [];
+    this.activeRequests = 0;
+    this.lastRequestAt = 0;
   }
 
   static decodeBase64(value) {
@@ -115,6 +123,47 @@ class TomestoneClient {
     this.requestTimestamps.push(Date.now());
   }
 
+  scheduleRequest(fn) {
+    return new Promise((resolve, reject) => {
+      this.requestQueue.push({ fn, resolve, reject });
+      this.processQueue();
+    });
+  }
+
+  processQueue() {
+    if (this.activeRequests >= this.maxConcurrentRequests) {
+      return;
+    }
+    const next = this.requestQueue.shift();
+    if (!next) {
+      return;
+    }
+
+    const now = Date.now();
+    const jitter = this.requestJitterMs > 0 ? Math.floor(Math.random() * this.requestJitterMs) : 0;
+    const waitMs = Math.max(0, this.requestSpacingMs - (now - this.lastRequestAt)) + jitter;
+
+    const run = async () => {
+      this.activeRequests += 1;
+      this.lastRequestAt = Date.now();
+      try {
+        const result = await next.fn();
+        next.resolve(result);
+      } catch (err) {
+        next.reject(err);
+      } finally {
+        this.activeRequests -= 1;
+        this.processQueue();
+      }
+    };
+
+    if (waitMs > 0) {
+      setTimeout(run, waitMs);
+    } else {
+      run();
+    }
+  }
+
   async getProfileById(id) {
     if (!this.enabled) {
       return null;
@@ -144,50 +193,52 @@ class TomestoneClient {
   }
 
   async fetchProfileById(id) {
-    if (!this.canMakeRequest()) {
-      console.log(`[Tomestone Client] Rate limit exceeded (${this.rateLimit} requests per ${this.rateLimitWindowMs}ms)`);
-      return null;
-    }
-
-    this.trackRequest();
-
-    const url = `${this.baseURL}/api/character/profile/${id}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
-    let res;
-    try {
-      res = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${this.token}`,
-        },
-      });
-    } catch (err) {
-      console.log(`[Tomestone Client] Profile fetch failed for ${id}: ${err.message}`);
-      return null;
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!res.ok) {
-      let body = '';
-      try {
-        body = await res.text();
-      } catch (_) {
-        // ignore
+    return this.scheduleRequest(async () => {
+      if (!this.canMakeRequest()) {
+        console.log(`[Tomestone Client] Rate limit exceeded (${this.rateLimit} requests per ${this.rateLimitWindowMs}ms)`);
+        return null;
       }
-      console.log(`[Tomestone Client] Profile fetch failed (${res.status}) for ${id}: ${body}`);
-      return null;
-    }
 
-    try {
-      return await res.json();
-    } catch (err) {
-      console.log(`[Tomestone Client] Profile JSON parse failed for ${id}: ${err.message}`);
-      return null;
-    }
+      this.trackRequest();
+
+      const url = `${this.baseURL}/api/character/profile/${id}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+
+      let res;
+      try {
+        res = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${this.token}`,
+          },
+        });
+      } catch (err) {
+        console.log(`[Tomestone Client] Profile fetch failed for ${id}: ${err.message}`);
+        return null;
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (!res.ok) {
+        let body = '';
+        try {
+          body = await res.text();
+        } catch (_) {
+          // ignore
+        }
+        console.log(`[Tomestone Client] Profile fetch failed (${res.status}) for ${id}: ${body}`);
+        return null;
+      }
+
+      try {
+        return await res.json();
+      } catch (err) {
+        console.log(`[Tomestone Client] Profile JSON parse failed for ${id}: ${err.message}`);
+        return null;
+      }
+    });
   }
 
   async getCharacterAvatarById(id, fallbackName, fallbackWorld) {
@@ -240,53 +291,55 @@ class TomestoneClient {
   }
 
   async fetchActivityPageById(id, pageOrUrl) {
-    if (!this.canMakeRequest()) {
-      console.log(`[Tomestone Client] Rate limit exceeded (${this.rateLimit} requests per ${this.rateLimitWindowMs}ms)`);
-      return null;
-    }
-
-    this.trackRequest();
-
-    const url = pageOrUrl
-      ? String(pageOrUrl)
-      : `${this.baseURL}/api/character/activity/${id}?page=1`;
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
-    let res;
-    try {
-      res = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${this.token}`,
-        },
-      });
-    } catch (err) {
-      console.log(`[Tomestone Client] Activity fetch failed for ${id}: ${err.message}`);
-      return null;
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!res.ok) {
-      let body = '';
-      try {
-        body = await res.text();
-      } catch (_) {
-        // ignore
+    return this.scheduleRequest(async () => {
+      if (!this.canMakeRequest()) {
+        console.log(`[Tomestone Client] Rate limit exceeded (${this.rateLimit} requests per ${this.rateLimitWindowMs}ms)`);
+        return null;
       }
-      console.log(`[Tomestone Client] Activity fetch failed (${res.status}) for ${id}: ${body}`);
-      return null;
-    }
 
-    try {
-      return await res.json();
-    } catch (err) {
-      console.log(`[Tomestone Client] Activity JSON parse failed for ${id}: ${err.message}`);
-      return null;
-    }
+      this.trackRequest();
+
+      const url = pageOrUrl
+        ? String(pageOrUrl)
+        : `${this.baseURL}/api/character/activity/${id}?page=1`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+
+      let res;
+      try {
+        res = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${this.token}`,
+          },
+        });
+      } catch (err) {
+        console.log(`[Tomestone Client] Activity fetch failed for ${id}: ${err.message}`);
+        return null;
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (!res.ok) {
+        let body = '';
+        try {
+          body = await res.text();
+        } catch (_) {
+          // ignore
+        }
+        console.log(`[Tomestone Client] Activity fetch failed (${res.status}) for ${id}: ${body}`);
+        return null;
+      }
+
+      try {
+        return await res.json();
+      } catch (err) {
+        console.log(`[Tomestone Client] Activity JSON parse failed for ${id}: ${err.message}`);
+        return null;
+      }
+    });
   }
 
   async fetchActivityAllById(id) {
@@ -409,17 +462,20 @@ class TomestoneClient {
     }
 
     const targetMatch = this.findProgressionTarget(activityPayload?.encounters, duty, encounterMatch?.category);
-    if (encounterMatch && targetMatch && encounterMatch.category === targetMatch.category) {
-      if (targetMatch.index > encounterMatch.index && encounterMatch.index >= 0) {
-        return '✅ Cleared';
-      }
-      if (targetMatch.index === encounterMatch.index && targetMatch.target?.percent) {
-        return `Progress: ${String(targetMatch.target.percent).trim()}`;
+    if (encounterMatch) {
+      const categoryTarget = this.getProgressionTargetForCategory(activityPayload?.encounters, encounterMatch.category);
+      if (categoryTarget?.index !== undefined && categoryTarget.index >= 0) {
+        if (categoryTarget.index > encounterMatch.index) {
+          return '✅ Cleared';
+        }
+        if (categoryTarget.index === encounterMatch.index) {
+          return this.formatProgress(categoryTarget.target);
+        }
       }
     }
 
-    if (targetMatch?.target?.percent) {
-      return `Progress: ${String(targetMatch.target.percent).trim()}`;
+    if (targetMatch?.target) {
+      return this.formatProgress(targetMatch.target);
     }
 
     if (encounterMatch) {
@@ -427,6 +483,24 @@ class TomestoneClient {
     }
 
     return null;
+  }
+
+  formatProgress(target) {
+    if (!target) {
+      return 'Not Cleared';
+    }
+    const percent = String(target.percent || '').trim();
+    const name = String(target.name || '').trim();
+    if (name && percent) {
+      return `Progress: ${name} ${percent}`;
+    }
+    if (percent) {
+      return `Progress: ${percent}`;
+    }
+    if (name) {
+      return `Progress: ${name}`;
+    }
+    return 'Not Cleared';
   }
 
   parsePercent(value) {
@@ -568,6 +642,29 @@ class TomestoneClient {
     }
 
     return null;
+  }
+
+  getProgressionTargetForCategory(encounters, categoryKey) {
+    if (!encounters || !categoryKey) {
+      return null;
+    }
+    const target = encounters[`${categoryKey}ProgressionTarget`];
+    if (!target) {
+      return null;
+    }
+    const list = this.getEncounterList(encounters, categoryKey);
+    const link = String(target.link || '');
+    const query = link.includes('?') ? link.split('?')[1] : '';
+    const params = new URLSearchParams(query);
+    const encounterSlug = params.get('encounter');
+    const zoneSlug = params.get('zone');
+    const candidates = [
+      target.name,
+      this.slugToLabel(encounterSlug),
+      this.slugToLabel(zoneSlug),
+    ];
+    const index = this.findEncounterIndex(list, candidates);
+    return { category: categoryKey, target, index };
   }
 
   getEncounterList(encounters, categoryKey) {
