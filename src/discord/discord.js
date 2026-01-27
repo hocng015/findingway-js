@@ -32,6 +32,7 @@ class Discord {
     };
     this.recruitmentManager = null;
     this.lodestoneClient = null;
+    this.tomestoneClient = null;
 
     this.pendingPortraits = new Map();
     this.portraitUpdaterStarted = false;
@@ -95,7 +96,8 @@ class Discord {
 
     for (const listing of scopedListings.listings) {
       const { thumbURL, name, world, cached } = await this.getListingThumbnailInfo(listing);
-      const embed = this.createListingEmbed(listing, thumbURL);
+      const progressInfo = await this.getListingProgressInfo(listing);
+      const embed = this.createListingEmbed(listing, thumbURL, progressInfo);
       const msg = await this.sendListingEmbed(channelId, embed);
       if (!cached && name && world) {
         this.queuePortraitUpdate(channelId, msg.id, embed, name, world);
@@ -120,11 +122,15 @@ class Discord {
     await channel.send({ embeds: [embed] });
   }
 
-  createListingEmbed(listing, thumbURL) {
+  createListingEmbed(listing, thumbURL, progressInfo) {
     const fields = [
       { name: 'Party', value: listing.partyDisplay(), inline: false },
       { name: 'Tags', value: this.boxed(this.formatTags(listing.getTags())), inline: true },
     ];
+
+    if (progressInfo) {
+      fields.push({ name: 'Lead Progress', value: progressInfo, inline: false });
+    }
 
     const description = this.truncateDescription(listing.description);
     if (description) {
@@ -249,6 +255,32 @@ class Discord {
     this.lodestoneClient.queueCharacterPortraitFetch(name, world);
 
     return { thumbURL: FallbackThumbnailURL, name, world, cached: false };
+  }
+
+  async getListingProgressInfo(listing) {
+    if (!this.lodestoneClient || !this.lodestoneClient.isEnabled()) {
+      return '';
+    }
+    if (!this.tomestoneClient || !this.tomestoneClient.isEnabled()) {
+      return '';
+    }
+
+    const { name, world } = this.parseListingCharacter(listing);
+    if (!name || !world) {
+      return '';
+    }
+
+    const id = await this.lodestoneClient.getCharacterId(name, world);
+    if (!id) {
+      return '';
+    }
+
+    const activityPayload = await this.tomestoneClient.getActivityById(id);
+    if (!activityPayload) {
+      return '';
+    }
+
+    return this.tomestoneClient.getDutyProgress(activityPayload, listing.duty) || '';
   }
 
   parseListingCharacter(listing) {

@@ -65,4 +65,8 @@ lodestone:
   searchCooldown: "10m" # Cooldown after timeouts or rate limits per character
   globalCooldown: "5m"  # Cooldown after Lodestone rate limits (global)
 
+# Tomestone API integration settings
+tomestone:
+  apiTokenBase64: "MjkzN3xweGJidUZxc0hZSmNzWGhmWmxzOHlXeW9jWlIxc2hVSnBCNUY3dGprYTFiYzQzMDY="
+
 

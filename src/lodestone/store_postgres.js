@@ -42,6 +42,22 @@ class PostgresStore {
         add column if not exists character_id bigint;
       create index if not exists lodestone_portraits_expires_idx
         on lodestone_portraits (expires_at);
+
+      create table if not exists tomestone_character_cache (
+        character_id bigint primary key,
+        name text not null,
+        world text not null,
+        profile_json jsonb,
+        activity_json jsonb,
+        profile_fetched_at timestamptz,
+        activity_fetched_at timestamptz,
+        profile_expires_at timestamptz,
+        activity_expires_at timestamptz
+      );
+      create index if not exists tomestone_character_cache_profile_expires_idx
+        on tomestone_character_cache (profile_expires_at);
+      create index if not exists tomestone_character_cache_activity_expires_idx
+        on tomestone_character_cache (activity_expires_at);
     `;
     await this.pool.query(query);
   }
@@ -162,6 +178,172 @@ class PostgresStore {
     }
 
     await this.pool.query('delete from lodestone_portraits where expires_at < now()');
+  }
+
+  async getTomestoneProfile(characterId) {
+    if (!this.pool) {
+      return { data: null, found: false };
+    }
+
+    const { rows } = await this.pool.query(
+      `
+        select profile_json, profile_expires_at, name, world, profile_fetched_at
+        from tomestone_character_cache
+        where character_id = $1
+      `,
+      [characterId],
+    );
+
+    if (rows.length === 0 || !rows[0].profile_json) {
+      return { data: null, found: false };
+    }
+
+    const expiresAt = rows[0].profile_expires_at ? new Date(rows[0].profile_expires_at) : null;
+    if (expiresAt && Date.now() > expiresAt.getTime()) {
+      return { data: null, found: false };
+    }
+
+    return {
+      data: rows[0].profile_json,
+      found: true,
+      name: rows[0].name,
+      world: rows[0].world,
+      fetchedAt: rows[0].profile_fetched_at ? new Date(rows[0].profile_fetched_at) : null,
+    };
+  }
+
+  async setTomestoneProfile(characterId, name, world, profileJson, fetchedAt, expiresAt) {
+    if (!this.pool) {
+      return;
+    }
+
+    await this.pool.query(
+      `
+        insert into tomestone_character_cache (
+          character_id, name, world, profile_json, profile_fetched_at, profile_expires_at
+        ) values ($1,$2,$3,$4,$5,$6)
+        on conflict (character_id) do update set
+          name = excluded.name,
+          world = excluded.world,
+          profile_json = excluded.profile_json,
+          profile_fetched_at = excluded.profile_fetched_at,
+          profile_expires_at = excluded.profile_expires_at
+      `,
+      [characterId, name || '', world || '', profileJson, fetchedAt, expiresAt],
+    );
+  }
+
+  async getTomestoneActivity(characterId) {
+    if (!this.pool) {
+      return { data: null, found: false };
+    }
+
+    const { rows } = await this.pool.query(
+      `
+        select activity_json, activity_expires_at, name, world, activity_fetched_at
+        from tomestone_character_cache
+        where character_id = $1
+      `,
+      [characterId],
+    );
+
+    if (rows.length === 0 || !rows[0].activity_json) {
+      return { data: null, found: false };
+    }
+
+    const expiresAt = rows[0].activity_expires_at ? new Date(rows[0].activity_expires_at) : null;
+    if (expiresAt && Date.now() > expiresAt.getTime()) {
+      return { data: null, found: false };
+    }
+
+    return {
+      data: rows[0].activity_json,
+      found: true,
+      name: rows[0].name,
+      world: rows[0].world,
+      fetchedAt: rows[0].activity_fetched_at ? new Date(rows[0].activity_fetched_at) : null,
+    };
+  }
+
+  async setTomestoneActivity(characterId, name, world, activityJson, fetchedAt, expiresAt) {
+    if (!this.pool) {
+      return;
+    }
+
+    await this.pool.query(
+      `
+        insert into tomestone_character_cache (
+          character_id, name, world, activity_json, activity_fetched_at, activity_expires_at
+        ) values ($1,$2,$3,$4,$5,$6)
+        on conflict (character_id) do update set
+          name = excluded.name,
+          world = excluded.world,
+          activity_json = excluded.activity_json,
+          activity_fetched_at = excluded.activity_fetched_at,
+          activity_expires_at = excluded.activity_expires_at
+      `,
+      [characterId, name || '', world || '', activityJson, fetchedAt, expiresAt],
+    );
+  }
+
+  async listTomestoneActivityExpiring(withinMs, limit = 25) {
+    if (!this.pool) {
+      return [];
+    }
+
+    const windowMs = Number.isFinite(withinMs) && withinMs > 0 ? withinMs : 0;
+    const maxRows = Number.isFinite(limit) && limit > 0 ? limit : 25;
+
+    const { rows } = await this.pool.query(
+      `
+        select character_id, name, world, activity_expires_at
+        from tomestone_character_cache
+        where activity_json is not null
+          and activity_expires_at is not null
+          and activity_expires_at < now() + ($1 * interval '1 millisecond')
+        order by activity_expires_at asc
+        limit $2
+      `,
+      [windowMs, maxRows],
+    );
+
+    return rows.map((row) => ({
+      id: row.character_id ? Number(row.character_id) : 0,
+      name: row.name,
+      world: row.world,
+      expiresAt: row.activity_expires_at ? new Date(row.activity_expires_at) : null,
+    }));
+  }
+
+  async listExpiring(withinMs, limit = 25) {
+    if (!this.pool) {
+      return [];
+    }
+
+    const windowMs = Number.isFinite(withinMs) && withinMs > 0 ? withinMs : 0;
+    const maxRows = Number.isFinite(limit) && limit > 0 ? limit : 25;
+
+    const { rows } = await this.pool.query(
+      `
+        select cache_key, character_id, name, world, is_negative, fetched_at, expires_at
+        from lodestone_portraits
+        where is_negative = false
+          and expires_at < now() + ($1 * interval '1 millisecond')
+        order by expires_at asc
+        limit $2
+      `,
+      [windowMs, maxRows],
+    );
+
+    return rows.map((row) => ({
+      cacheKey: row.cache_key,
+      id: row.character_id ? Number(row.character_id) : 0,
+      name: row.name,
+      world: row.world,
+      isNegative: row.is_negative,
+      fetchedAt: row.fetched_at ? new Date(row.fetched_at) : null,
+      expiresAt: row.expires_at ? new Date(row.expires_at) : null,
+    }));
   }
 }
 

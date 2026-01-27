@@ -7,6 +7,7 @@ const { Logger } = require('./logger/logger');
 const { Scraper } = require('./scraper/scraper');
 const { MarketboardClient } = require('./marketboard/marketboard');
 const { LodestoneClient } = require('./lodestone/lodestone');
+const { TomestoneClient } = require('./tomestone/tomestone');
 const { PostgresStore } = require('./lodestone/store_postgres');
 const { HealthServer } = require('./web/server');
 
@@ -89,6 +90,9 @@ async function main() {
   if (config.lodestone) {
     discord.lodestone = config.lodestone;
   }
+  if (config.tomestone) {
+    discord.tomestone = config.tomestone;
+  }
 
   if (discord.lodestone?.enabled) {
     console.log(
@@ -101,6 +105,8 @@ async function main() {
     let searchCooldownMs = parseDurationMs(discord.lodestone.searchCooldown, 10 * 60 * 1000);
     let globalCooldownMs = parseDurationMs(discord.lodestone.globalCooldown, 5 * 60 * 1000);
 
+    const tomestoneClient = new TomestoneClient(discord.tomestone || {});
+    discord.tomestoneClient = tomestoneClient;
     const lodestoneClient = new LodestoneClient(
       true,
       discord.lodestone.language,
@@ -108,6 +114,7 @@ async function main() {
       maxCacheSize,
       searchCooldownMs,
       globalCooldownMs,
+      tomestoneClient,
     );
 
     const dbType = getEnvOrDefault('DATABASE_TYPE', '').trim().toLowerCase();
@@ -117,6 +124,8 @@ async function main() {
       try {
         await store.init();
         lodestoneClient.setStore(store);
+        tomestoneClient.setStore(store);
+        tomestoneClient.startRefresh();
         console.log('Lodestone persistent store enabled.');
       } catch (err) {
         console.log(`Lodestone store disabled (DB init failed): ${err.message}`);
