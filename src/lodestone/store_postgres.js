@@ -212,6 +212,34 @@ class PostgresStore {
     };
   }
 
+  async getTomestoneProfileRaw(characterId) {
+    if (!this.pool) {
+      return { data: null, found: false };
+    }
+
+    const { rows } = await this.pool.query(
+      `
+        select profile_json, profile_expires_at, name, world, profile_fetched_at
+        from tomestone_character_cache
+        where character_id = $1
+      `,
+      [characterId],
+    );
+
+    if (rows.length === 0 || !rows[0].profile_json) {
+      return { data: null, found: false };
+    }
+
+    return {
+      data: rows[0].profile_json,
+      found: true,
+      name: rows[0].name,
+      world: rows[0].world,
+      fetchedAt: rows[0].profile_fetched_at ? new Date(rows[0].profile_fetched_at) : null,
+      expiresAt: rows[0].profile_expires_at ? new Date(rows[0].profile_expires_at) : null,
+    };
+  }
+
   async setTomestoneProfile(characterId, name, world, profileJson, fetchedAt, expiresAt) {
     if (!this.pool) {
       return;
@@ -262,6 +290,34 @@ class PostgresStore {
       name: rows[0].name,
       world: rows[0].world,
       fetchedAt: rows[0].activity_fetched_at ? new Date(rows[0].activity_fetched_at) : null,
+    };
+  }
+
+  async getTomestoneActivityRaw(characterId) {
+    if (!this.pool) {
+      return { data: null, found: false };
+    }
+
+    const { rows } = await this.pool.query(
+      `
+        select activity_json, activity_expires_at, name, world, activity_fetched_at
+        from tomestone_character_cache
+        where character_id = $1
+      `,
+      [characterId],
+    );
+
+    if (rows.length === 0 || !rows[0].activity_json) {
+      return { data: null, found: false };
+    }
+
+    return {
+      data: rows[0].activity_json,
+      found: true,
+      name: rows[0].name,
+      world: rows[0].world,
+      fetchedAt: rows[0].activity_fetched_at ? new Date(rows[0].activity_fetched_at) : null,
+      expiresAt: rows[0].activity_expires_at ? new Date(rows[0].activity_expires_at) : null,
     };
   }
 

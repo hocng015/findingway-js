@@ -79,6 +79,10 @@ class TomestoneClient {
     this.activeRequests = 0;
     this.lastRequestAt = 0;
     this.debug = !!config.debug;
+    this.cooldownUntil = 0;
+    this.cooldownReason = '';
+    this.cooldown429Ms = parseDurationMs(config.cooldown429Ms || config.cooldownMs, 5 * 60 * 1000);
+    this.cooldown403Ms = parseDurationMs(config.cooldown403Ms || config.cooldownMs, 10 * 60 * 1000);
   }
 
   static decodeBase64(value) {
@@ -138,6 +142,19 @@ class TomestoneClient {
     console.log(`[Tomestone Client] ${message}`);
   }
 
+  isCooldownActive() {
+    return this.cooldownUntil && Date.now() < this.cooldownUntil;
+  }
+
+  setCooldown(durationMs, reason) {
+    const until = Date.now() + durationMs;
+    if (until > this.cooldownUntil) {
+      this.cooldownUntil = until;
+      this.cooldownReason = reason || '';
+      this.logDebug(`Cooldown set for ${durationMs}ms (${reason || 'unknown'})`);
+    }
+  }
+
   scheduleRequest(fn) {
     return new Promise((resolve, reject) => {
       this.requestQueue.push({ fn, resolve, reject });
@@ -184,6 +201,18 @@ class TomestoneClient {
 
   async getProfileById(id) {
     if (!this.enabled) {
+      return null;
+    }
+
+    if (this.isCooldownActive()) {
+      this.logDebug(`Skipping profile fetch for ${id} due to cooldown (${this.cooldownReason})`);
+      if (this.store && typeof this.store.getTomestoneProfileRaw === 'function') {
+        const cached = await this.store.getTomestoneProfileRaw(id);
+        if (cached?.found) {
+          this.logDebug(`Using stale profile cache for ${id}`);
+          return cached.data;
+        }
+      }
       return null;
     }
 
@@ -249,6 +278,15 @@ class TomestoneClient {
         } catch (_) {
           // ignore
         }
+        if (res.status === 429) {
+          const retryAfter = Number.parseInt(res.headers.get('retry-after') || '', 10);
+          const backoffMs = Number.isFinite(retryAfter) && retryAfter > 0
+            ? retryAfter * 1000
+            : this.cooldown429Ms;
+          this.setCooldown(backoffMs, 'rate_limit');
+        } else if (res.status === 403) {
+          this.setCooldown(this.cooldown403Ms, 'forbidden');
+        }
         console.log(`[Tomestone Client] Profile fetch failed (${res.status}) for ${id}: ${body}`);
         return null;
       }
@@ -285,6 +323,18 @@ class TomestoneClient {
 
   async getActivityById(id) {
     if (!this.enabled) {
+      return null;
+    }
+
+    if (this.isCooldownActive()) {
+      this.logDebug(`Skipping activity fetch for ${id} due to cooldown (${this.cooldownReason})`);
+      if (this.store && typeof this.store.getTomestoneActivityRaw === 'function') {
+        const cached = await this.store.getTomestoneActivityRaw(id);
+        if (cached?.found) {
+          this.logDebug(`Using stale activity cache for ${id}`);
+          return cached.data;
+        }
+      }
       return null;
     }
 
@@ -364,6 +414,15 @@ class TomestoneClient {
           body = await res.text();
         } catch (_) {
           // ignore
+        }
+        if (res.status === 429) {
+          const retryAfter = Number.parseInt(res.headers.get('retry-after') || '', 10);
+          const backoffMs = Number.isFinite(retryAfter) && retryAfter > 0
+            ? retryAfter * 1000
+            : this.cooldown429Ms;
+          this.setCooldown(backoffMs, 'rate_limit');
+        } else if (res.status === 403) {
+          this.setCooldown(this.cooldown403Ms, 'forbidden');
         }
         console.log(`[Tomestone Client] Activity fetch failed (${res.status}) for ${id}: ${body}`);
         return null;
