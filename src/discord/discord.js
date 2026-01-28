@@ -239,10 +239,14 @@ class Discord {
     }
 
     if (this.tomestoneClient && this.tomestoneClient.isEnabled()) {
-      const activityPayload = await this.tomestoneClient.getActivityByName(name, world);
-      const tomestoneAvatar = this.tomestoneClient.getAvatarFromActivity(activityPayload);
-      if (tomestoneAvatar) {
-        return { thumbURL: tomestoneAvatar, name, world, cached: true };
+      // Try to get profile data (includes avatar and custom images)
+      const id = await this.lodestoneClient.getCharacterId(name, world);
+      if (id) {
+        const profilePayload = await this.tomestoneClient.getProfileById(id);
+        const tomestoneAvatar = this.tomestoneClient.getPreferredAvatar(profilePayload);
+        if (tomestoneAvatar) {
+          return { thumbURL: tomestoneAvatar, name, world, cached: true };
+        }
       }
     }
 
@@ -278,19 +282,18 @@ class Discord {
       return '';
     }
 
-    let activityPayload = await this.tomestoneClient.getActivityByName(name, world);
-    if (!activityPayload) {
-      const id = await this.lodestoneClient.getCharacterId(name, world);
-      if (!id) {
-        return '';
-      }
-      activityPayload = await this.tomestoneClient.getActivityById(id);
-    }
-    if (!activityPayload) {
+    // Use profile endpoint instead of activity endpoint (activity endpoint is unreliable)
+    const id = await this.lodestoneClient.getCharacterId(name, world);
+    if (!id) {
       return '';
     }
 
-    return this.tomestoneClient.getDutyProgress(activityPayload, listing.duty) || '';
+    const profilePayload = await this.tomestoneClient.getProfileById(id);
+    if (!profilePayload) {
+      return '';
+    }
+
+    return this.tomestoneClient.getDutyProgress(profilePayload, listing.duty) || '';
   }
 
   parseListingCharacter(listing) {

@@ -135,6 +135,22 @@ class PostgresStore {
     if (customImages) {
       data.customImages = customImages;
     }
+    // Include encounters if present (from profile API)
+    if (row.savage_encounters !== undefined || row.ultimate_encounters !== undefined) {
+      data.encounters = {
+        savage: row.savage_encounters || null,
+        ultimate: row.ultimate_encounters || null,
+        savageProgressionTarget: row.savage_progression || null,
+        ultimateProgressionTarget: row.ultimate_progression || null,
+        extremes: null,
+        criterion: null,
+        chaotic: null,
+        quantum: null,
+        extremesProgressionTarget: null,
+        chaoticProgressionTarget: null,
+        quantumProgressionTarget: null,
+      };
+    }
     return data;
   }
 
@@ -284,6 +300,8 @@ class PostgresStore {
         select character_id, name, world,
           lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
           custom_avatar_url, custom_banner_url, custom_portrait_url,
+          savage_encounters, ultimate_encounters,
+          savage_progression, ultimate_progression,
           profile_expires_at, profile_fetched_at
         from tomestone_character_cache
         where character_id = $1
@@ -324,6 +342,8 @@ class PostgresStore {
         select character_id, name, world,
           lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
           custom_avatar_url, custom_banner_url, custom_portrait_url,
+          savage_encounters, ultimate_encounters,
+          savage_progression, ultimate_progression,
           profile_expires_at, profile_fetched_at
         from tomestone_character_cache
         where character_id = $1
@@ -362,14 +382,22 @@ class PostgresStore {
     const customBanner = this.normalizeImageUrl(profileJson?.customImages?.banner?.image);
     const customPortrait = this.normalizeImageUrl(profileJson?.customImages?.portrait?.image);
 
+    // Extract encounter data if present in the profile
+    const savageEncounters = profileJson?.encounters?.savage ?? null;
+    const ultimateEncounters = profileJson?.encounters?.ultimate ?? null;
+    const savageProgression = profileJson?.encounters?.savageProgressionTarget ?? null;
+    const ultimateProgression = profileJson?.encounters?.ultimateProgressionTarget ?? null;
+
     await this.pool.query(
       `
         insert into tomestone_character_cache (
           character_id, name, world,
           lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
           custom_avatar_url, custom_banner_url, custom_portrait_url,
+          savage_encounters, ultimate_encounters,
+          savage_progression, ultimate_progression,
           profile_fetched_at, profile_expires_at
-        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
         on conflict (character_id) do update set
           name = excluded.name,
           world = excluded.world,
@@ -379,6 +407,10 @@ class PostgresStore {
           custom_avatar_url = excluded.custom_avatar_url,
           custom_banner_url = excluded.custom_banner_url,
           custom_portrait_url = excluded.custom_portrait_url,
+          savage_encounters = excluded.savage_encounters,
+          ultimate_encounters = excluded.ultimate_encounters,
+          savage_progression = excluded.savage_progression,
+          ultimate_progression = excluded.ultimate_progression,
           profile_fetched_at = excluded.profile_fetched_at,
           profile_expires_at = excluded.profile_expires_at
       `,
@@ -392,6 +424,10 @@ class PostgresStore {
         customAvatar,
         customBanner,
         customPortrait,
+        savageEncounters ? JSON.stringify(savageEncounters) : null,
+        ultimateEncounters ? JSON.stringify(ultimateEncounters) : null,
+        savageProgression ? JSON.stringify(savageProgression) : null,
+        ultimateProgression ? JSON.stringify(ultimateProgression) : null,
         fetchedAt,
         expiresAt,
       ],

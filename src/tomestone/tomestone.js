@@ -219,6 +219,22 @@ class TomestoneClient {
     if (customImages) {
       summary.customImages = customImages;
     }
+    // Include encounters if present in the payload (from profile API)
+    if (payload?.encounters) {
+      summary.encounters = {
+        savage: this.summarizeEncounters(payload?.encounters?.savage),
+        ultimate: this.summarizeEncounters(payload?.encounters?.ultimate),
+        savageProgressionTarget: this.summarizeProgressionTarget(payload?.encounters?.savageProgressionTarget),
+        ultimateProgressionTarget: this.summarizeProgressionTarget(payload?.encounters?.ultimateProgressionTarget),
+        extremes: null,
+        criterion: null,
+        chaotic: null,
+        quantum: null,
+        extremesProgressionTarget: null,
+        chaoticProgressionTarget: null,
+        quantumProgressionTarget: null,
+      };
+    }
     return summary;
   }
 
