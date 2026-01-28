@@ -282,19 +282,18 @@ class Discord {
       return '';
     }
 
-    // Try to get character ID from Lodestone
+    // Use profile endpoint instead of activity endpoint (activity endpoint is unreliable)
     const id = await this.lodestoneClient.getCharacterId(name, world);
     if (!id) {
       return '';
     }
 
-    // Use activity endpoint for detailed encounter data (profile only has M4 encounters)
-    const activityPayload = await this.tomestoneClient.getActivityById(id);
-    if (!activityPayload) {
+    const profilePayload = await this.tomestoneClient.getProfileById(id);
+    if (!profilePayload) {
       return '';
     }
 
-    return this.tomestoneClient.getDutyProgress(activityPayload, listing.duty) || '';
+    return this.tomestoneClient.getDutyProgress(profilePayload, listing.duty) || '';
   }
 
   parseListingCharacter(listing) {
