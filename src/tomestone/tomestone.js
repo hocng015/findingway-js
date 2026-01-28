@@ -825,13 +825,13 @@ class TomestoneClient {
     const percent = String(target.percent || '').trim();
     const name = String(target.name || '').trim();
     if (name && percent) {
-      return `Progress: ${name} ${percent}`;
+      return `${name} ${percent}`;
     }
     if (percent) {
-      return `Progress: ${percent}`;
+      return percent;
     }
     if (name) {
-      return `Progress: ${name}`;
+      return name;
     }
     return 'No Information';
   }
@@ -874,6 +874,10 @@ class TomestoneClient {
   }
 
   matchesDuty(dutyLabel, candidates) {
+    // Extract M1/M2/M3/M4 number from duty if present
+    const dutyNumberMatch = dutyLabel.match(/\bm(\d+)\b/);
+    const dutyNumber = dutyNumberMatch ? dutyNumberMatch[1] : null;
+
     for (const candidate of candidates) {
       if (!candidate) {
         continue;
@@ -882,6 +886,16 @@ class TomestoneClient {
       if (!normalized) {
         continue;
       }
+
+      // Extract M1/M2/M3/M4 number from candidate if present
+      const candidateNumberMatch = normalized.match(/\bm(\d+)\b/);
+      const candidateNumber = candidateNumberMatch ? candidateNumberMatch[1] : null;
+
+      // If both have numbers, they must match
+      if (dutyNumber && candidateNumber && dutyNumber !== candidateNumber) {
+        continue;
+      }
+
       if (normalized === dutyLabel || normalized.includes(dutyLabel) || dutyLabel.includes(normalized)) {
         return true;
       }
