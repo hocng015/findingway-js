@@ -1,5 +1,6 @@
 const { Character, CharacterSearch } = require('@xivapi/nodestone');
 const { Cache, NEGATIVE_TTL_MS } = require('./cache');
+const { FallbackThumbnailURL } = require('../discord/colors');
 
 const STORE_TIMEOUT_MS = 2000;
 
@@ -38,7 +39,7 @@ function normalizeLanguage(language) {
 }
 
 class LodestoneClient {
-  constructor(enabled, language, cacheTTL, maxCacheSize, perKeyCooldownMs, globalCooldownMs) {
+  constructor(enabled, language, cacheTTL, maxCacheSize, perKeyCooldownMs, globalCooldownMs, tomestoneClient) {
     this.enabled = !!enabled;
     this.language = normalizeLanguage(language);
     this.cache = new Cache(cacheTTL, maxCacheSize);
@@ -53,6 +54,8 @@ class LodestoneClient {
     this.globalUntil = null;
     this.perKeyCooldownMs = perKeyCooldownMs;
     this.globalCooldownMs = globalCooldownMs;
+    this.tomestoneClient = tomestoneClient || null;
+    this.fallbackImageUrl = FallbackThumbnailURL;
 
     if (this.enabled) {
       this.startWorker();
@@ -205,6 +208,18 @@ class LodestoneClient {
     }
 
     const cacheKey = this.cacheKey(name, world);
+
+    if (this.tomestoneClient && this.tomestoneClient.isEnabled() && this.store) {
+      const stored = await this.getStoredID(cacheKey);
+      if (stored.found && stored.id > 0) {
+        const activity = await this.tomestoneClient.getCachedActivityById(stored.id);
+        const tomestoneAvatar = this.tomestoneClient.getAvatarFromActivity(activity);
+        if (tomestoneAvatar) {
+          return { url: tomestoneAvatar, found: true };
+        }
+      }
+    }
+
     const cached = this.cache.get(cacheKey);
     if (cached.found) {
       const url = cached.value.avatar || cached.value.portrait || '';
@@ -221,6 +236,50 @@ class LodestoneClient {
     }
 
     return { url: '', found: false };
+  }
+
+  async getCharacterId(name, world) {
+    if (!this.isEnabled()) {
+      return 0;
+    }
+
+    const cacheKey = this.cacheKey(name, world);
+    const stored = await this.getStoredID(cacheKey);
+    if (stored.found && stored.id > 0) {
+      return stored.id;
+    }
+
+    if (this.isGlobalCooldownActive() || this.isKeyCooldownActive(cacheKey)) {
+      return 0;
+    }
+
+    let searchResult;
+    try {
+      searchResult = await this.searchCharacter(name, world, cacheKey);
+    } catch (err) {
+      console.log(`[Lodestone Client] Failed to resolve character ID for ${cacheKey}: ${err.message}`);
+      return 0;
+    }
+
+    if (!searchResult) {
+      this.cache.setNegative(cacheKey);
+      await this.persistNegative(cacheKey, name, world);
+      return 0;
+    }
+
+    const character = {
+      id: searchResult.id,
+      name: searchResult.name,
+      world: searchResult.world,
+      portrait: '',
+      avatar: searchResult.avatar || '',
+      fetchedAt: new Date(),
+    };
+
+    this.cache.set(cacheKey, character);
+    await this.persistPositive(cacheKey, character);
+
+    return searchResult.id;
   }
 
   async isNegativeCached(name, world) {
@@ -275,6 +334,18 @@ class LodestoneClient {
     }
 
     const cacheKey = this.cacheKey(name, world);
+
+    if (this.tomestoneClient && this.tomestoneClient.isEnabled() && this.store) {
+      const stored = await this.getStoredID(cacheKey);
+      if (stored.found && stored.id > 0) {
+        const activity = await this.tomestoneClient.getCachedActivityById(stored.id);
+        const tomestoneAvatar = this.tomestoneClient.getAvatarFromActivity(activity);
+        if (tomestoneAvatar) {
+          return tomestoneAvatar;
+        }
+      }
+    }
+
     const cached = this.cache.get(cacheKey);
     if (cached.found) {
       const url = cached.value.avatar || cached.value.portrait || '';
@@ -284,20 +355,20 @@ class LodestoneClient {
 
     const cachedPeek = this.cache.peek(cacheKey);
     if (cachedPeek.found && cachedPeek.value.isNegative) {
-      throw new Error(`character not found: ${name} @ ${world}`);
+      return this.fallbackImageUrl;
     }
 
     const storeEntry = await this.getStoreEntry(cacheKey);
     if (storeEntry.found) {
       if (storeEntry.isNegative) {
-        throw new Error(`character not found: ${name} @ ${world}`);
+        return this.fallbackImageUrl;
       }
       const url = storeEntry.data.avatar || storeEntry.data.portrait || '';
       return url;
     }
 
     if (this.isGlobalCooldownActive() || this.isKeyCooldownActive(cacheKey)) {
-      throw new Error('lodestone search cooldown active');
+      return this.fallbackImageUrl;
     }
 
     if (!this.markInFlight(cacheKey)) {
@@ -335,17 +406,17 @@ class LodestoneClient {
       if (cached.found) {
         const url = cached.value.avatar || cached.value.portrait || '';
         if (!url) {
-          throw new Error(`portrait not available: ${name} @ ${world}`);
+          return this.fallbackImageUrl;
         }
         return url;
       }
       const peek = this.cache.peek(cacheKey);
       if (peek.found && peek.value.isNegative) {
-        throw new Error(`character not found: ${name} @ ${world}`);
+        return this.fallbackImageUrl;
       }
       await sleep(200);
     }
-    throw new Error('response timeout');
+    return this.fallbackImageUrl;
   }
 
   startWorker() {
@@ -391,6 +462,17 @@ class LodestoneClient {
     const stored = await this.getStoredID(cacheKey);
     if (stored.found && stored.id > 0) {
       console.log(`[Lodestone Client] Using stored character ID ${stored.id} for ${cacheKey}`);
+      const tomestoneCharacter = await this.fetchTomestoneCharacterById(stored.id, name, world);
+      if (tomestoneCharacter) {
+        const portraitURL = tomestoneCharacter.avatar || tomestoneCharacter.portrait || '';
+        console.log(`[Lodestone Client] Retrieved Tomestone avatar URL: ${portraitURL}`);
+        this.cache.set(cacheKey, tomestoneCharacter);
+        await this.persistPositive(cacheKey, tomestoneCharacter);
+        console.log(`[Lodestone Client] Cached Tomestone character data for ${cacheKey}`);
+        this.clearKeyCooldown(cacheKey);
+        return portraitURL || this.fallbackImageUrl;
+      }
+
       const character = await this.fetchCharacterById(stored.id);
       if (character) {
         const portraitURL = character.avatar || character.portrait || '';
@@ -403,16 +485,34 @@ class LodestoneClient {
       }
     }
 
-    const searchResult = await this.searchCharacter(name, world, cacheKey);
+    let searchResult;
+    try {
+      searchResult = await this.searchCharacter(name, world, cacheKey);
+    } catch (err) {
+      console.log(`[Lodestone Client] Nodestone search failed for ${cacheKey}: ${err.message}`);
+      return this.fallbackImageUrl;
+    }
     if (!searchResult) {
       this.cache.setNegative(cacheKey);
       await this.persistNegative(cacheKey, name, world);
-      throw new Error(`character not found: ${name} @ ${world}`);
+      return this.fallbackImageUrl;
+    }
+
+    const tomestoneCharacter = await this.fetchTomestoneCharacterById(searchResult.id, searchResult.name, searchResult.world);
+    if (tomestoneCharacter) {
+      const portraitURL = tomestoneCharacter.avatar || tomestoneCharacter.portrait || '';
+      console.log(`[Lodestone Client] Retrieved Tomestone avatar URL: ${portraitURL}`);
+      this.cache.set(cacheKey, tomestoneCharacter);
+      await this.persistPositive(cacheKey, tomestoneCharacter);
+      console.log(`[Lodestone Client] Cached Tomestone character data for ${cacheKey}`);
+      this.clearKeyCooldown(cacheKey);
+      return portraitURL || this.fallbackImageUrl;
     }
 
     const character = await this.fetchCharacterById(searchResult.id);
     if (!character) {
-      throw new Error('failed to fetch character');
+      console.log(`[Lodestone Client] Failed to fetch Nodestone character for ${cacheKey}, using fallback image`);
+      return this.fallbackImageUrl;
     }
 
     const portraitURL = character.avatar || character.portrait || '';
@@ -423,6 +523,20 @@ class LodestoneClient {
     this.clearKeyCooldown(cacheKey);
 
     return portraitURL;
+  }
+
+  async fetchTomestoneCharacterById(id, fallbackName, fallbackWorld) {
+    if (!this.tomestoneClient || !this.tomestoneClient.isEnabled()) {
+      return null;
+    }
+
+    const character = await this.tomestoneClient.getCharacterAvatarById(id, fallbackName, fallbackWorld);
+    if (!character) {
+      return null;
+    }
+
+    character.world = normalizeWorld(character.world);
+    return character;
   }
 
   async searchCharacter(name, world, cacheKey) {
