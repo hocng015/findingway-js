@@ -47,13 +47,49 @@ class PostgresStore {
         character_id bigint primary key,
         name text not null,
         world text not null,
-        profile_json jsonb,
-        activity_json jsonb,
+        lodestone_avatar_url text,
+        lodestone_banner_url text,
+        lodestone_portrait_url text,
+        custom_avatar_url text,
+        custom_banner_url text,
+        custom_portrait_url text,
+        savage_encounters jsonb,
+        ultimate_encounters jsonb,
+        savage_progression jsonb,
+        ultimate_progression jsonb,
         profile_fetched_at timestamptz,
         activity_fetched_at timestamptz,
         profile_expires_at timestamptz,
         activity_expires_at timestamptz
       );
+      alter table tomestone_character_cache
+        add column if not exists lodestone_avatar_url text;
+      alter table tomestone_character_cache
+        add column if not exists lodestone_banner_url text;
+      alter table tomestone_character_cache
+        add column if not exists lodestone_portrait_url text;
+      alter table tomestone_character_cache
+        add column if not exists custom_avatar_url text;
+      alter table tomestone_character_cache
+        add column if not exists custom_banner_url text;
+      alter table tomestone_character_cache
+        add column if not exists custom_portrait_url text;
+      alter table tomestone_character_cache
+        add column if not exists savage_encounters jsonb;
+      alter table tomestone_character_cache
+        add column if not exists ultimate_encounters jsonb;
+      alter table tomestone_character_cache
+        add column if not exists savage_progression jsonb;
+      alter table tomestone_character_cache
+        add column if not exists ultimate_progression jsonb;
+      alter table tomestone_character_cache
+        add column if not exists profile_fetched_at timestamptz;
+      alter table tomestone_character_cache
+        add column if not exists activity_fetched_at timestamptz;
+      alter table tomestone_character_cache
+        add column if not exists profile_expires_at timestamptz;
+      alter table tomestone_character_cache
+        add column if not exists activity_expires_at timestamptz;
       create index if not exists tomestone_character_cache_profile_expires_idx
         on tomestone_character_cache (profile_expires_at);
       create index if not exists tomestone_character_cache_activity_expires_idx
@@ -62,6 +98,62 @@ class PostgresStore {
         on tomestone_character_cache (lower(name), lower(world));
     `;
     await this.pool.query(query);
+  }
+
+  normalizeImageUrl(value) {
+    if (!value) {
+      return null;
+    }
+    const trimmed = String(value).trim();
+    return trimmed || null;
+  }
+
+  buildCustomImagesFromRow(row) {
+    const customImages = {};
+    if (row.custom_avatar_url) {
+      customImages.avatar = { image: row.custom_avatar_url };
+    }
+    if (row.custom_banner_url) {
+      customImages.banner = { image: row.custom_banner_url };
+    }
+    if (row.custom_portrait_url) {
+      customImages.portrait = { image: row.custom_portrait_url };
+    }
+    return Object.keys(customImages).length > 0 ? customImages : null;
+  }
+
+  buildTomestoneProfilePayload(row) {
+    const data = {
+      id: row.character_id ? Number(row.character_id) : 0,
+      name: row.name || '',
+      server: row.world || '',
+      avatar: row.lodestone_avatar_url || '',
+      banner: row.lodestone_banner_url || '',
+      portrait: row.lodestone_portrait_url || '',
+    };
+    const customImages = this.buildCustomImagesFromRow(row);
+    if (customImages) {
+      data.customImages = customImages;
+    }
+    return data;
+  }
+
+  buildTomestoneActivityPayload(row) {
+    const data = this.buildTomestoneProfilePayload(row);
+    data.encounters = {
+      savage: row.savage_encounters || null,
+      ultimate: row.ultimate_encounters || null,
+      savageProgressionTarget: row.savage_progression || null,
+      ultimateProgressionTarget: row.ultimate_progression || null,
+      extremes: null,
+      criterion: null,
+      chaotic: null,
+      quantum: null,
+      extremesProgressionTarget: null,
+      chaoticProgressionTarget: null,
+      quantumProgressionTarget: null,
+    };
+    return data;
   }
 
   async get(cacheKey) {
@@ -189,28 +281,36 @@ class PostgresStore {
 
     const { rows } = await this.pool.query(
       `
-        select profile_json, profile_expires_at, name, world, profile_fetched_at
+        select character_id, name, world,
+          lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
+          custom_avatar_url, custom_banner_url, custom_portrait_url,
+          profile_expires_at, profile_fetched_at
         from tomestone_character_cache
         where character_id = $1
       `,
       [characterId],
     );
 
-    if (rows.length === 0 || !rows[0].profile_json) {
+    if (rows.length === 0) {
       return { data: null, found: false };
     }
 
-    const expiresAt = rows[0].profile_expires_at ? new Date(rows[0].profile_expires_at) : null;
+    const row = rows[0];
+    if (!row.profile_fetched_at && !row.profile_expires_at) {
+      return { data: null, found: false };
+    }
+
+    const expiresAt = row.profile_expires_at ? new Date(row.profile_expires_at) : null;
     if (expiresAt && Date.now() > expiresAt.getTime()) {
       return { data: null, found: false };
     }
 
     return {
-      data: rows[0].profile_json,
+      data: this.buildTomestoneProfilePayload(row),
       found: true,
-      name: rows[0].name,
-      world: rows[0].world,
-      fetchedAt: rows[0].profile_fetched_at ? new Date(rows[0].profile_fetched_at) : null,
+      name: row.name,
+      world: row.world,
+      fetchedAt: row.profile_fetched_at ? new Date(row.profile_fetched_at) : null,
     };
   }
 
@@ -221,24 +321,32 @@ class PostgresStore {
 
     const { rows } = await this.pool.query(
       `
-        select profile_json, profile_expires_at, name, world, profile_fetched_at
+        select character_id, name, world,
+          lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
+          custom_avatar_url, custom_banner_url, custom_portrait_url,
+          profile_expires_at, profile_fetched_at
         from tomestone_character_cache
         where character_id = $1
       `,
       [characterId],
     );
 
-    if (rows.length === 0 || !rows[0].profile_json) {
+    if (rows.length === 0) {
+      return { data: null, found: false };
+    }
+
+    const row = rows[0];
+    if (!row.profile_fetched_at && !row.profile_expires_at) {
       return { data: null, found: false };
     }
 
     return {
-      data: rows[0].profile_json,
+      data: this.buildTomestoneProfilePayload(row),
       found: true,
-      name: rows[0].name,
-      world: rows[0].world,
-      fetchedAt: rows[0].profile_fetched_at ? new Date(rows[0].profile_fetched_at) : null,
-      expiresAt: rows[0].profile_expires_at ? new Date(rows[0].profile_expires_at) : null,
+      name: row.name,
+      world: row.world,
+      fetchedAt: row.profile_fetched_at ? new Date(row.profile_fetched_at) : null,
+      expiresAt: row.profile_expires_at ? new Date(row.profile_expires_at) : null,
     };
   }
 
@@ -247,19 +355,46 @@ class PostgresStore {
       return;
     }
 
+    const lodestoneAvatar = this.normalizeImageUrl(profileJson?.avatar);
+    const lodestoneBanner = this.normalizeImageUrl(profileJson?.banner);
+    const lodestonePortrait = this.normalizeImageUrl(profileJson?.portrait);
+    const customAvatar = this.normalizeImageUrl(profileJson?.customImages?.avatar?.image);
+    const customBanner = this.normalizeImageUrl(profileJson?.customImages?.banner?.image);
+    const customPortrait = this.normalizeImageUrl(profileJson?.customImages?.portrait?.image);
+
     await this.pool.query(
       `
         insert into tomestone_character_cache (
-          character_id, name, world, profile_json, profile_fetched_at, profile_expires_at
-        ) values ($1,$2,$3,$4,$5,$6)
+          character_id, name, world,
+          lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
+          custom_avatar_url, custom_banner_url, custom_portrait_url,
+          profile_fetched_at, profile_expires_at
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         on conflict (character_id) do update set
           name = excluded.name,
           world = excluded.world,
-          profile_json = excluded.profile_json,
+          lodestone_avatar_url = excluded.lodestone_avatar_url,
+          lodestone_banner_url = excluded.lodestone_banner_url,
+          lodestone_portrait_url = excluded.lodestone_portrait_url,
+          custom_avatar_url = excluded.custom_avatar_url,
+          custom_banner_url = excluded.custom_banner_url,
+          custom_portrait_url = excluded.custom_portrait_url,
           profile_fetched_at = excluded.profile_fetched_at,
           profile_expires_at = excluded.profile_expires_at
       `,
-      [characterId, name || '', world || '', profileJson, fetchedAt, expiresAt],
+      [
+        characterId,
+        name || '',
+        world || '',
+        lodestoneAvatar,
+        lodestoneBanner,
+        lodestonePortrait,
+        customAvatar,
+        customBanner,
+        customPortrait,
+        fetchedAt,
+        expiresAt,
+      ],
     );
   }
 
@@ -270,28 +405,38 @@ class PostgresStore {
 
     const { rows } = await this.pool.query(
       `
-        select activity_json, activity_expires_at, name, world, activity_fetched_at
+        select character_id, name, world,
+          lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
+          custom_avatar_url, custom_banner_url, custom_portrait_url,
+          savage_encounters, ultimate_encounters,
+          savage_progression, ultimate_progression,
+          activity_expires_at, activity_fetched_at
         from tomestone_character_cache
         where character_id = $1
       `,
       [characterId],
     );
 
-    if (rows.length === 0 || !rows[0].activity_json) {
+    if (rows.length === 0) {
       return { data: null, found: false };
     }
 
-    const expiresAt = rows[0].activity_expires_at ? new Date(rows[0].activity_expires_at) : null;
+    const row = rows[0];
+    if (!row.activity_fetched_at && !row.activity_expires_at) {
+      return { data: null, found: false };
+    }
+
+    const expiresAt = row.activity_expires_at ? new Date(row.activity_expires_at) : null;
     if (expiresAt && Date.now() > expiresAt.getTime()) {
       return { data: null, found: false };
     }
 
     return {
-      data: rows[0].activity_json,
+      data: this.buildTomestoneActivityPayload(row),
       found: true,
-      name: rows[0].name,
-      world: rows[0].world,
-      fetchedAt: rows[0].activity_fetched_at ? new Date(rows[0].activity_fetched_at) : null,
+      name: row.name,
+      world: row.world,
+      fetchedAt: row.activity_fetched_at ? new Date(row.activity_fetched_at) : null,
     };
   }
 
@@ -308,7 +453,12 @@ class PostgresStore {
 
     const { rows } = await this.pool.query(
       `
-        select activity_json, activity_expires_at, name, world, activity_fetched_at
+        select character_id, name, world,
+          lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
+          custom_avatar_url, custom_banner_url, custom_portrait_url,
+          savage_encounters, ultimate_encounters,
+          savage_progression, ultimate_progression,
+          activity_expires_at, activity_fetched_at
         from tomestone_character_cache
         where lower(name) = $1
           and lower(world) = $2
@@ -317,21 +467,26 @@ class PostgresStore {
       [nameValue, worldValue],
     );
 
-    if (rows.length === 0 || !rows[0].activity_json) {
+    if (rows.length === 0) {
       return { data: null, found: false };
     }
 
-    const expiresAt = rows[0].activity_expires_at ? new Date(rows[0].activity_expires_at) : null;
+    const row = rows[0];
+    if (!row.activity_fetched_at && !row.activity_expires_at) {
+      return { data: null, found: false };
+    }
+
+    const expiresAt = row.activity_expires_at ? new Date(row.activity_expires_at) : null;
     if (expiresAt && Date.now() > expiresAt.getTime()) {
       return { data: null, found: false };
     }
 
     return {
-      data: rows[0].activity_json,
+      data: this.buildTomestoneActivityPayload(row),
       found: true,
-      name: rows[0].name,
-      world: rows[0].world,
-      fetchedAt: rows[0].activity_fetched_at ? new Date(rows[0].activity_fetched_at) : null,
+      name: row.name,
+      world: row.world,
+      fetchedAt: row.activity_fetched_at ? new Date(row.activity_fetched_at) : null,
     };
   }
 
@@ -342,24 +497,34 @@ class PostgresStore {
 
     const { rows } = await this.pool.query(
       `
-        select activity_json, activity_expires_at, name, world, activity_fetched_at
+        select character_id, name, world,
+          lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
+          custom_avatar_url, custom_banner_url, custom_portrait_url,
+          savage_encounters, ultimate_encounters,
+          savage_progression, ultimate_progression,
+          activity_expires_at, activity_fetched_at
         from tomestone_character_cache
         where character_id = $1
       `,
       [characterId],
     );
 
-    if (rows.length === 0 || !rows[0].activity_json) {
+    if (rows.length === 0) {
+      return { data: null, found: false };
+    }
+
+    const row = rows[0];
+    if (!row.activity_fetched_at && !row.activity_expires_at) {
       return { data: null, found: false };
     }
 
     return {
-      data: rows[0].activity_json,
+      data: this.buildTomestoneActivityPayload(row),
       found: true,
-      name: rows[0].name,
-      world: rows[0].world,
-      fetchedAt: rows[0].activity_fetched_at ? new Date(rows[0].activity_fetched_at) : null,
-      expiresAt: rows[0].activity_expires_at ? new Date(rows[0].activity_expires_at) : null,
+      name: row.name,
+      world: row.world,
+      fetchedAt: row.activity_fetched_at ? new Date(row.activity_fetched_at) : null,
+      expiresAt: row.activity_expires_at ? new Date(row.activity_expires_at) : null,
     };
   }
 
@@ -376,7 +541,12 @@ class PostgresStore {
 
     const { rows } = await this.pool.query(
       `
-        select activity_json, activity_expires_at, name, world, activity_fetched_at
+        select character_id, name, world,
+          lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
+          custom_avatar_url, custom_banner_url, custom_portrait_url,
+          savage_encounters, ultimate_encounters,
+          savage_progression, ultimate_progression,
+          activity_expires_at, activity_fetched_at
         from tomestone_character_cache
         where lower(name) = $1
           and lower(world) = $2
@@ -385,17 +555,22 @@ class PostgresStore {
       [nameValue, worldValue],
     );
 
-    if (rows.length === 0 || !rows[0].activity_json) {
+    if (rows.length === 0) {
+      return { data: null, found: false };
+    }
+
+    const row = rows[0];
+    if (!row.activity_fetched_at && !row.activity_expires_at) {
       return { data: null, found: false };
     }
 
     return {
-      data: rows[0].activity_json,
+      data: this.buildTomestoneActivityPayload(row),
       found: true,
-      name: rows[0].name,
-      world: rows[0].world,
-      fetchedAt: rows[0].activity_fetched_at ? new Date(rows[0].activity_fetched_at) : null,
-      expiresAt: rows[0].activity_expires_at ? new Date(rows[0].activity_expires_at) : null,
+      name: row.name,
+      world: row.world,
+      fetchedAt: row.activity_fetched_at ? new Date(row.activity_fetched_at) : null,
+      expiresAt: row.activity_expires_at ? new Date(row.activity_expires_at) : null,
     };
   }
 
@@ -404,19 +579,60 @@ class PostgresStore {
       return;
     }
 
+    const lodestoneAvatar = this.normalizeImageUrl(activityJson?.avatar);
+    const lodestoneBanner = this.normalizeImageUrl(activityJson?.banner);
+    const lodestonePortrait = this.normalizeImageUrl(activityJson?.portrait);
+    const customAvatar = this.normalizeImageUrl(activityJson?.customImages?.avatar?.image);
+    const customBanner = this.normalizeImageUrl(activityJson?.customImages?.banner?.image);
+    const customPortrait = this.normalizeImageUrl(activityJson?.customImages?.portrait?.image);
+    const savageEncounters = activityJson?.encounters?.savage ?? null;
+    const ultimateEncounters = activityJson?.encounters?.ultimate ?? null;
+    const savageProgression = activityJson?.encounters?.savageProgressionTarget ?? null;
+    const ultimateProgression = activityJson?.encounters?.ultimateProgressionTarget ?? null;
+
     await this.pool.query(
       `
         insert into tomestone_character_cache (
-          character_id, name, world, activity_json, activity_fetched_at, activity_expires_at
-        ) values ($1,$2,$3,$4,$5,$6)
+          character_id, name, world,
+          lodestone_avatar_url, lodestone_banner_url, lodestone_portrait_url,
+          custom_avatar_url, custom_banner_url, custom_portrait_url,
+          savage_encounters, ultimate_encounters,
+          savage_progression, ultimate_progression,
+          activity_fetched_at, activity_expires_at
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
         on conflict (character_id) do update set
           name = excluded.name,
           world = excluded.world,
-          activity_json = excluded.activity_json,
+          lodestone_avatar_url = excluded.lodestone_avatar_url,
+          lodestone_banner_url = excluded.lodestone_banner_url,
+          lodestone_portrait_url = excluded.lodestone_portrait_url,
+          custom_avatar_url = excluded.custom_avatar_url,
+          custom_banner_url = excluded.custom_banner_url,
+          custom_portrait_url = excluded.custom_portrait_url,
+          savage_encounters = excluded.savage_encounters,
+          ultimate_encounters = excluded.ultimate_encounters,
+          savage_progression = excluded.savage_progression,
+          ultimate_progression = excluded.ultimate_progression,
           activity_fetched_at = excluded.activity_fetched_at,
           activity_expires_at = excluded.activity_expires_at
       `,
-      [characterId, name || '', world || '', activityJson, fetchedAt, expiresAt],
+      [
+        characterId,
+        name || '',
+        world || '',
+        lodestoneAvatar,
+        lodestoneBanner,
+        lodestonePortrait,
+        customAvatar,
+        customBanner,
+        customPortrait,
+        savageEncounters,
+        ultimateEncounters,
+        savageProgression,
+        ultimateProgression,
+        fetchedAt,
+        expiresAt,
+      ],
     );
   }
 
@@ -432,8 +648,7 @@ class PostgresStore {
       `
         select character_id, name, world, activity_expires_at
         from tomestone_character_cache
-        where activity_json is not null
-          and activity_expires_at is not null
+        where activity_expires_at is not null
           and activity_expires_at < now() + ($1 * interval '1 millisecond')
         order by activity_expires_at asc
         limit $2

@@ -120,6 +120,132 @@ class TomestoneClient {
     return this.getPreferredAvatar(payload);
   }
 
+  normalizeImageUrl(value) {
+    if (!value) {
+      return '';
+    }
+    return String(value).trim();
+  }
+
+  buildCustomImages(payload) {
+    const avatar = this.normalizeImageUrl(payload?.customImages?.avatar?.image);
+    const banner = this.normalizeImageUrl(payload?.customImages?.banner?.image);
+    const portrait = this.normalizeImageUrl(payload?.customImages?.portrait?.image);
+    const customImages = {};
+    if (avatar) {
+      customImages.avatar = { image: avatar };
+    }
+    if (banner) {
+      customImages.banner = { image: banner };
+    }
+    if (portrait) {
+      customImages.portrait = { image: portrait };
+    }
+    return Object.keys(customImages).length > 0 ? customImages : null;
+  }
+
+  summarizeEncounter(encounter) {
+    if (!encounter) {
+      return null;
+    }
+    const summary = {};
+    const name = String(encounter?.name || '').trim();
+    const zoneName = String(encounter?.zoneName || '').trim();
+    const compactName = String(encounter?.compactName || '').trim();
+    const link = String(encounter?.activity?.link || '').trim();
+    const completedAt = String(encounter?.achievement?.completedAt || '').trim();
+    if (name) {
+      summary.name = name;
+    }
+    if (zoneName) {
+      summary.zoneName = zoneName;
+    }
+    if (compactName) {
+      summary.compactName = compactName;
+    }
+    if (link) {
+      summary.activity = { link };
+    }
+    if (completedAt) {
+      summary.achievement = { completedAt };
+    }
+    return Object.keys(summary).length > 0 ? summary : null;
+  }
+
+  summarizeEncounters(list) {
+    if (!Array.isArray(list)) {
+      return null;
+    }
+    return list
+      .map((encounter) => this.summarizeEncounter(encounter))
+      .filter(Boolean);
+  }
+
+  summarizeProgressionTarget(target) {
+    if (!target) {
+      return null;
+    }
+    const summary = {};
+    const name = String(target?.name || '').trim();
+    const link = String(target?.link || '').trim();
+    const percent = String(target?.percent || '').trim();
+    if (name) {
+      summary.name = name;
+    }
+    if (link) {
+      summary.link = link;
+    }
+    if (percent) {
+      summary.percent = percent;
+    }
+    return Object.keys(summary).length > 0 ? summary : null;
+  }
+
+  buildProfileSummary(payload, fallbackName, fallbackWorld) {
+    if (!payload) {
+      return null;
+    }
+    const name = String(payload?.name || fallbackName || '').trim();
+    const server = String(payload?.server || fallbackWorld || '').trim();
+    const customImages = this.buildCustomImages(payload);
+    const summary = {
+      id: Number(payload?.id || 0) || 0,
+      name,
+      server,
+      avatar: this.normalizeImageUrl(payload?.avatar),
+      banner: this.normalizeImageUrl(payload?.banner),
+      portrait: this.normalizeImageUrl(payload?.portrait),
+    };
+    if (customImages) {
+      summary.customImages = customImages;
+    }
+    return summary;
+  }
+
+  buildActivitySummary(payload, fallbackName, fallbackWorld) {
+    if (!payload) {
+      return null;
+    }
+    const summary = this.buildProfileSummary(payload, fallbackName, fallbackWorld);
+    if (!summary) {
+      return null;
+    }
+    summary.encounters = {
+      savage: this.summarizeEncounters(payload?.encounters?.savage),
+      ultimate: this.summarizeEncounters(payload?.encounters?.ultimate),
+      savageProgressionTarget: this.summarizeProgressionTarget(payload?.encounters?.savageProgressionTarget),
+      ultimateProgressionTarget: this.summarizeProgressionTarget(payload?.encounters?.ultimateProgressionTarget),
+      extremes: null,
+      criterion: null,
+      chaotic: null,
+      quantum: null,
+      extremesProgressionTarget: null,
+      chaoticProgressionTarget: null,
+      quantumProgressionTarget: null,
+    };
+    return summary;
+  }
+
   cleanupOldRequests() {
     const now = Date.now();
     const cutoff = now - this.rateLimitWindowMs;
@@ -226,20 +352,21 @@ class TomestoneClient {
 
     this.logDebug(`Profile cache miss for ${id}`);
     const profile = await this.fetchProfileById(id);
-    if (profile && this.store && typeof this.store.setTomestoneProfile === 'function') {
+    const summary = this.buildProfileSummary(profile);
+    if (summary && this.store && typeof this.store.setTomestoneProfile === 'function') {
       const expiresAt = new Date(Date.now() + this.profileCacheTTLms);
       await this.store.setTomestoneProfile(
         id,
-        profile?.name || '',
-        profile?.server || '',
-        profile,
+        summary?.name || '',
+        summary?.server || '',
+        summary,
         new Date(),
         expiresAt,
       );
       this.logDebug(`Profile cached for ${id} (expires: ${expiresAt.toISOString()})`);
     }
 
-    return profile;
+    return summary;
   }
 
   async fetchProfileById(id) {
@@ -348,20 +475,21 @@ class TomestoneClient {
 
     this.logDebug(`Activity cache miss for ${id}`);
     const activityPayload = await this.fetchActivityAllById(id);
-    if (activityPayload && this.store && typeof this.store.setTomestoneActivity === 'function') {
+    const summary = this.buildActivitySummary(activityPayload);
+    if (summary && this.store && typeof this.store.setTomestoneActivity === 'function') {
       const expiresAt = new Date(Date.now() + this.activityCacheTTLms);
       await this.store.setTomestoneActivity(
         id,
-        activityPayload?.name || '',
-        activityPayload?.server || '',
-        activityPayload,
+        summary?.name || '',
+        summary?.server || '',
+        summary,
         new Date(),
         expiresAt,
       );
       this.logDebug(`Activity cached for ${id} (expires: ${expiresAt.toISOString()})`);
     }
 
-    return activityPayload;
+    return summary;
   }
 
   async getActivityByName(name, world) {
@@ -397,25 +525,26 @@ class TomestoneClient {
 
     this.logDebug(`Activity cache miss for ${safeName}@${safeWorld}`);
     const activityPayload = await this.fetchActivityAllByName(safeName, safeWorld);
-    if (!activityPayload) {
+    const summary = this.buildActivitySummary(activityPayload, safeName, safeWorld);
+    if (!summary) {
       return null;
     }
 
-    const id = Number(activityPayload?.id || 0);
+    const id = Number(summary?.id || 0);
     if (id && this.store && typeof this.store.setTomestoneActivity === 'function') {
       const expiresAt = new Date(Date.now() + this.activityCacheTTLms);
       await this.store.setTomestoneActivity(
         id,
-        activityPayload?.name || safeName,
-        activityPayload?.server || safeWorld,
-        activityPayload,
+        summary?.name || safeName,
+        summary?.server || safeWorld,
+        summary,
         new Date(),
         expiresAt,
       );
       this.logDebug(`Activity cached for ${id} (${safeName}@${safeWorld}) (expires: ${expiresAt.toISOString()})`);
     }
 
-    return activityPayload;
+    return summary;
   }
 
   async getCachedActivityById(id) {
@@ -609,15 +738,16 @@ class TomestoneClient {
           continue;
         }
         const payload = await this.fetchActivityAllById(entry.id);
-        if (!payload) {
+        const summary = this.buildActivitySummary(payload, entry.name, entry.world);
+        if (!summary) {
           continue;
         }
         const expiresAt = new Date(Date.now() + this.activityCacheTTLms);
         await this.store.setTomestoneActivity(
           entry.id,
-          payload?.name || entry.name || '',
-          payload?.server || entry.world || '',
-          payload,
+          summary?.name || entry.name || '',
+          summary?.server || entry.world || '',
+          summary,
           new Date(),
           expiresAt,
         );
