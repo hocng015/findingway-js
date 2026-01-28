@@ -787,31 +787,34 @@ class TomestoneClient {
     }
 
     const encounterMatch = this.findEncounterMatch(activityPayload?.encounters, duty);
+
+    // If they have a cleared achievement for this specific duty, show cleared
     if (encounterMatch?.encounter?.achievement?.completedAt) {
       return '✅ Cleared';
     }
 
-    const targetMatch = this.findProgressionTarget(activityPayload?.encounters, duty, encounterMatch?.category);
+    // Check if this duty is in their progression path
     if (encounterMatch) {
       const categoryTarget = this.getProgressionTargetForCategory(activityPayload?.encounters, encounterMatch.category);
       if (categoryTarget?.index !== undefined && categoryTarget.index >= 0) {
+        // If they're progressing a later fight in the series, they've cleared this one
         if (categoryTarget.index > encounterMatch.index) {
           return '✅ Cleared';
         }
+        // Only show progress if they're CURRENTLY progressing this specific duty
         if (categoryTarget.index === encounterMatch.index) {
           return this.formatProgress(categoryTarget.target);
         }
+        // If progression target is before this fight, they haven't reached it yet
+        if (categoryTarget.index < encounterMatch.index) {
+          return 'No Information';
+        }
       }
-    }
-
-    if (targetMatch?.target) {
-      return this.formatProgress(targetMatch.target);
-    }
-
-    if (encounterMatch) {
+      // Encounter exists but no progression data available
       return 'No Information';
     }
 
+    // Encounter not found in their data
     return null;
   }
 
