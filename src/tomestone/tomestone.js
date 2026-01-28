@@ -786,6 +786,27 @@ class TomestoneClient {
       return null;
     }
 
+    // Check if this is a numbered savage raid (M1/M2/M3/M4)
+    const dutyNumberMatch = duty.match(/\bm(\d+)\b/);
+    if (dutyNumberMatch) {
+      const dutyNumber = parseInt(dutyNumberMatch[1], 10);
+
+      // Check savage progression target
+      const target = activityPayload?.encounters?.savageProgressionTarget;
+      if (target?.name) {
+        const targetNumber = this.getEncounterNumberFromName(target.name);
+        if (targetNumber > 0) {
+          if (targetNumber > dutyNumber) {
+            return '✅ Cleared';
+          } else if (targetNumber === dutyNumber) {
+            return this.formatProgress(target);
+          } else {
+            return 'No Information';
+          }
+        }
+      }
+    }
+
     const encounterMatch = this.findEncounterMatch(activityPayload?.encounters, duty);
 
     // If they have a cleared achievement for this specific duty, show cleared
@@ -816,6 +837,30 @@ class TomestoneClient {
 
     // Encounter not found in their data
     return null;
+  }
+
+  getEncounterNumberFromName(bossName) {
+    const name = this.normalizeLabel(bossName);
+
+    // Heavyweight tier (7.3)
+    if (name.includes('vamp fatale')) return 1; // M9S
+    if (name.includes('red hot') || name.includes('deep blue')) return 2; // M10S
+    if (name.includes('tyrant')) return 3; // M11S
+    if (name.includes('lindwurm')) return 4; // M12S (includes Lindwurm II)
+
+    // Cruiserweight tier (7.2)
+    if (name.includes('queen eternal')) return 1; // M5S
+    if (name.includes('eliminator')) return 2; // M6S
+    if (name.includes('brute bomber')) return 3; // M7S
+    if (name.includes('howling blade')) return 4; // M8S
+
+    // Light-Heavyweight tier (7.0/7.05)
+    if (name.includes('black cat')) return 1; // M1S
+    if (name.includes('honey b')) return 2; // M2S
+    if (name.includes('brute discharger')) return 3; // M3S
+    if (name.includes('wicked thunder')) return 4; // M4S
+
+    return 0;
   }
 
   formatProgress(target) {
@@ -891,7 +936,13 @@ class TomestoneClient {
       const candidateNumberMatch = normalized.match(/\bm(\d+)\b/);
       const candidateNumber = candidateNumberMatch ? candidateNumberMatch[1] : null;
 
-      // If both have numbers, they must match
+      // If duty has an M-number but candidate doesn't, they can't match
+      // (prevents M1 from matching encounters without specific numbers)
+      if (dutyNumber && !candidateNumber) {
+        continue;
+      }
+
+      // If both have numbers, they must match exactly
       if (dutyNumber && candidateNumber && dutyNumber !== candidateNumber) {
         continue;
       }
