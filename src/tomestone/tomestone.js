@@ -807,6 +807,26 @@ class TomestoneClient {
       }
     }
 
+    // Check if this is an ultimate raid
+    if (duty.includes('ultimate')) {
+      const dutyUltimate = this.getUltimateAbbreviation(duty);
+      const target = activityPayload?.encounters?.ultimateProgressionTarget;
+
+      if (target?.name) {
+        const targetUltimate = this.getUltimateAbbreviation(this.normalizeLabel(target.name));
+
+        // Only show progression if they're progressing the SAME ultimate as the PF listing
+        if (dutyUltimate && targetUltimate) {
+          if (dutyUltimate === targetUltimate) {
+            return this.formatProgress(target);
+          } else {
+            // They're progressing a different ultimate - don't show progression
+            return 'No Information';
+          }
+        }
+      }
+    }
+
     const encounterMatch = this.findEncounterMatch(activityPayload?.encounters, duty);
 
     // If they have a cleared achievement for this specific duty, show cleared
@@ -861,6 +881,20 @@ class TomestoneClient {
     if (name.includes('wicked thunder')) return 4; // M4S
 
     return 0;
+  }
+
+  getUltimateAbbreviation(dutyName) {
+    const name = this.normalizeLabel(dutyName);
+
+    // Map ultimate raid names to their abbreviations
+    if (name.includes('futures rewritten') || name.includes('fru')) return 'FRU';
+    if (name.includes('omega protocol') || name.includes('top')) return 'TOP';
+    if (name.includes('dragonsong') || name.includes('dsr')) return 'DSR';
+    if (name.includes('epic of alexander') || name.includes('tea')) return 'TEA';
+    if (name.includes('weapon') && name.includes('refrain') || name.includes('uwu')) return 'UWU';
+    if (name.includes('unending coil') || name.includes('ucob')) return 'UCoB';
+
+    return null;
   }
 
   formatProgress(target) {
