@@ -428,7 +428,7 @@ class Discord {
     await this.sendMarketboardHeader(channelId, data.items.length);
 
     const sectionEmbed = new EmbedBuilder()
-      .setTitle('?? Best HQ Deals Across All NA Servers')
+      .setTitle('🏆 Best HQ Deals Across All NA Servers')
       .setColor(0x00ff00)
       .setDescription('The cheapest HQ listing for each tracked item:');
 
@@ -453,11 +453,11 @@ class Discord {
   }
 
   async sendMarketboardHeader(channelId, itemCount) {
-    const statusEmoji = itemCount === 0 ? '?' : '??';
+    const statusEmoji = itemCount === 0 ? '❌' : '✅';
     const statusText = itemCount === 0 ? 'No HQ marketboard data available' : `Tracking ${itemCount} items (HQ only)`;
 
     const embed = new EmbedBuilder()
-      .setTitle('?? FFXIV Marketboard HQ Prices • NA Regions')
+      .setTitle('💰 FFXIV Marketboard HQ Prices • NA Regions')
       .setColor(0xffd700)
       .setDescription(`${statusEmoji} **${statusText}**`)
       .setFooter({ text: 'Showing HQ prices only' });
@@ -486,20 +486,20 @@ class Discord {
       embedColor = 0x6a5acd;
     }
 
-    let titleEmoji = '??';
+    let titleEmoji = '📦';
     if (item.itemName.includes('Popcorn')) {
-      titleEmoji = '??';
+      titleEmoji = '🍿';
     } else if (item.itemName.includes('Gemdraught')) {
-      titleEmoji = '??';
+      titleEmoji = '🍯';
     }
 
     const description = `\`\`\`\n` +
-      `?? Price:    ${formatPrice(listing.price)} Gil ${listing.getQualityString()}\n` +
-      `?? Stack:    ${listing.getStackInfo()}\n` +
-      `?? Location: ${listing.getLocationString()}\n` +
-      `?? Seller:   ${listing.sellerName}\n` +
+      `💰 Price:    ${formatPrice(listing.price)} Gil ${listing.getQualityString()}\n` +
+      `📦 Stack:    ${listing.getStackInfo()}\n` +
+      `🌐 Location: ${listing.getLocationString()}\n` +
+      `👤 Seller:   ${listing.sellerName}\n` +
       `\`\`\`\n` +
-      `?? **Updated** ${listing.getUpdateTime()}`;
+      `🕐 **Updated** ${listing.getUpdateTime()}`;
 
     const embed = new EmbedBuilder()
       .setTitle(`${titleEmoji} ${item.itemName}`)
@@ -536,27 +536,27 @@ class Discord {
       embedColor = 0x6a5acd;
     }
 
-    let titleEmoji = '??';
+    let titleEmoji = '📦';
     if (item.itemName.includes('Popcorn')) {
-      titleEmoji = '??';
+      titleEmoji = '🍿';
     } else if (item.itemName.includes('Gemdraught')) {
-      titleEmoji = '??';
+      titleEmoji = '🍯';
     }
 
     const fields = [];
     displayListings.forEach((listing, index) => {
       let rankEmoji = `#${index + 1}`;
-      if (index === 0) rankEmoji = '??';
-      if (index === 1) rankEmoji = '??';
-      if (index === 2) rankEmoji = '??';
+      if (index === 0) rankEmoji = '🥇';
+      if (index === 1) rankEmoji = '🥈';
+      if (index === 2) rankEmoji = '🥉';
 
       const fieldValue = `\`\`\`\n` +
-        `?? Price:    ${formatPrice(listing.price)} Gil ${listing.getQualityString()}\n` +
-        `?? Stack:    ${listing.getStackInfo()}\n` +
-        `?? Location: ${listing.getLocationString()}\n` +
-        `?? Seller:   ${listing.sellerName}\n` +
+        `💰 Price:    ${formatPrice(listing.price)} Gil ${listing.getQualityString()}\n` +
+        `📦 Stack:    ${listing.getStackInfo()}\n` +
+        `🌐 Location: ${listing.getLocationString()}\n` +
+        `👤 Seller:   ${listing.sellerName}\n` +
         `\`\`\`\n` +
-        `?? **Updated** ${listing.getUpdateTime()}`;
+        `🕐 **Updated** ${listing.getUpdateTime()}`;
 
       fields.push({ name: `${rankEmoji} Rank ${index + 1}`, value: fieldValue, inline: false });
     });
@@ -583,10 +583,10 @@ class Discord {
       .setColor(0xffd700)
       .setDescription(
         `${divider}\n` +
-          '?? **Note:** Only showing High Quality (HQ) items\n' +
-          '?? **Data:** Cross-server HQ pricing across all NA data centers\n' +
-          '?? **Warning:** Prices may have changed since last update\n' +
-          '? **Quality:** All prices shown are for HQ items only\n' +
+          '📝 **Note:** Only showing High Quality (HQ) items\n' +
+          '📊 **Data:** Cross-server HQ pricing across all NA data centers\n' +
+          '⚠️ **Warning:** Prices may have changed since last update\n' +
+          '✨ **Quality:** All prices shown are for HQ items only\n' +
           `${divider}`,
       )
       .setFooter({ text: `Powered by Universalis API • HQ-only scan completed at ${new Date().toLocaleTimeString()}` });
