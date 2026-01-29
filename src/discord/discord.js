@@ -122,8 +122,9 @@ class Discord {
 
   createListingEmbed(listing, thumbURL) {
     const fields = [
-      { name: 'Party', value: listing.partyDisplay(), inline: false },
-      { name: 'Tags', value: this.boxed(this.formatTags(listing.getTags())), inline: true },
+      { name: 'Party', value: listing.partyDisplay(), inline: true },
+      { name: 'Min IL', value: this.formatMinIL(listing.minIL), inline: true },
+      { name: 'Tags', value: this.boxed(this.formatTags(listing.getTags())), inline: false },
     ];
 
     const description = this.truncateDescription(listing.description);
@@ -165,6 +166,23 @@ class Discord {
       return 'No tags';
     }
     return tags;
+  }
+
+  formatMinIL(minIL) {
+    if (!minIL || minIL.trim() === '') {
+      return 'N/A';
+    }
+    const keycaps = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
+    return minIL
+      .split('')
+      .map((char) => {
+        const digit = parseInt(char, 10);
+        if (!isNaN(digit)) {
+          return keycaps[digit];
+        }
+        return char;
+      })
+      .join('');
   }
 
   getListingColor(listing) {
