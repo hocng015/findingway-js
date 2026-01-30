@@ -70,4 +70,12 @@ tomestone:
   apiTokenBase64: "MjkzN3xweGJidUZxc0hZSmNzWGhmWmxzOHlXeW9jWlIxc2hVSnBCNUY3dGprYTFiYzQzMDY="
   debug: true  # Enable debug logging for Tomestone API
 
+# Duty thumbnail images for header embeds
+# Keys should match duty names (case-insensitive partial match)
+dutyThumbnails:
+  m1: "https://assets.rpglogs.com/img/ff/bosses/101-icon.jpg?v=6"
+  m2: "https://assets.rpglogs.com/img/ff/bosses/102-icon.jpg?v=6"
+  m3: "https://assets.rpglogs.com/img/ff/bosses/103-icon.jpg?v=6"
+  m4: "https://assets.rpglogs.com/img/ff/bosses/105-icon.jpg?v=6"
+
 

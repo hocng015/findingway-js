@@ -33,6 +33,7 @@ class Discord {
     this.recruitmentManager = null;
     this.lodestoneClient = null;
     this.tomestoneClient = null;
+    this.dutyThumbnails = {};
 
     this.pendingPortraits = new Map();
     this.portraitUpdaterStarted = false;
@@ -118,8 +119,26 @@ class Discord {
       .setDescription(statusText)
       .setFooter({ text: 'FindingWay FFXIV Party Finder Bot' });
 
+    const thumbnailURL = this.getDutyThumbnail(duty);
+    if (thumbnailURL) {
+      embed.setThumbnail(thumbnailURL);
+    }
+
     const channel = await this.client.channels.fetch(channelId);
     await channel.send({ embeds: [embed] });
+  }
+
+  getDutyThumbnail(duty) {
+    if (!this.dutyThumbnails || Object.keys(this.dutyThumbnails).length === 0) {
+      return null;
+    }
+    const dutyLower = (duty || '').toLowerCase();
+    for (const [key, url] of Object.entries(this.dutyThumbnails)) {
+      if (dutyLower.includes(key.toLowerCase())) {
+        return url;
+      }
+    }
+    return null;
   }
 
   createListingEmbed(listing, thumbURL, progressInfo) {

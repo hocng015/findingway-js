@@ -87,6 +87,7 @@ async function main() {
   discord.channels = config.channels || [];
   discord.marketboardChannels = config.marketboardChannels || [];
   discord.recruitmentChannels = config.recruitmentChannels || [];
+  discord.dutyThumbnails = config.dutyThumbnails || {};
   if (config.lodestone) {
     discord.lodestone = config.lodestone;
   }
