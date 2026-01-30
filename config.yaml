@@ -73,9 +73,17 @@ tomestone:
 # Duty thumbnail images for header embeds
 # Keys should match duty names (case-insensitive partial match)
 dutyThumbnails:
+  # Savage
   m1: "https://assets.rpglogs.com/img/ff/bosses/101-icon.jpg?v=6"
   m2: "https://assets.rpglogs.com/img/ff/bosses/102-icon.jpg?v=6"
   m3: "https://assets.rpglogs.com/img/ff/bosses/103-icon.jpg?v=6"
   m4: "https://assets.rpglogs.com/img/ff/bosses/105-icon.jpg?v=6"
+  # Ultimates
+  "futures rewritten": "https://assets.rpglogs.com/img/ff/bosses/1079-icon.jpg?v=6"
+  "omega protocol": "https://assets.rpglogs.com/img/ff/bosses/1077-icon.jpg?v=6"
+  "dragonsong": "https://assets.rpglogs.com/img/ff/bosses/1076-icon.jpg?v=6"
+  "epic of alexander": "https://assets.rpglogs.com/img/ff/bosses/1075-icon.jpg?v=6"
+  "weapon's refrain": "https://assets.rpglogs.com/img/ff/bosses/1074-icon.jpg?v=6"
+  "unending coil": "https://assets.rpglogs.com/img/ff/bosses/1073-icon.jpg?v=6"
 
 
